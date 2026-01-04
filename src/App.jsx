@@ -448,6 +448,7 @@ export default function ArtGallery() {
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showPriceSettings, setShowPriceSettings] = useState(false);
   const [showOrderHistory, setShowOrderHistory] = useState(false);
+  const [showOrders, setShowOrders] = useState(false);
   const [userOrders, setUserOrders] = useState([]);
   const [loadingOrders, setLoadingOrders] = useState(false);
   const [showShopAdmin, setShowShopAdmin] = useState(false);
@@ -933,12 +934,12 @@ export default function ArtGallery() {
     }
   };
 
-  // Fetch orders when order history modal opens
+  // Fetch orders when order history or orders panel opens
   useEffect(() => {
-    if (showOrderHistory && user) {
+    if ((showOrderHistory || showOrders) && user) {
       fetchUserOrders();
     }
-  }, [showOrderHistory, user]);
+  }, [showOrderHistory, showOrders, user]);
 
   // Track page view on mount
   useEffect(() => {
@@ -2529,6 +2530,23 @@ export default function ArtGallery() {
                 className="group flex items-center gap-2 px-5 py-2.5 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 text-[#0a0a0b] font-medium text-sm transition-all duration-300 hover:shadow-lg hover:shadow-amber-500/25 hover:scale-[1.02] active:scale-[0.98]"
               >
                 <span>Sign In</span>
+              </button>
+            )}
+            {/* Orders button - only show if logged in */}
+            {user && (
+              <button
+                onClick={() => setShowOrders(true)}
+                className="relative flex items-center gap-2 px-4 py-2.5 rounded-full bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 transition-all duration-300"
+                title="My Orders"
+              >
+                <svg className="w-5 h-5 text-white/70" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+                </svg>
+                {userOrders.length > 0 && (
+                  <span className="absolute -top-1 -right-1 w-5 h-5 bg-purple-500 text-white text-xs font-bold rounded-full flex items-center justify-center">
+                    {userOrders.length}
+                  </span>
+                )}
               </button>
             )}
             {/* Cart button */}
@@ -5850,6 +5868,218 @@ export default function ArtGallery() {
                 </button>
               </div>
             )}
+          </aside>
+        </>
+      )}
+
+      {/* Orders Panel */}
+      {showOrders && (
+        <>
+          <div
+            className="fixed inset-0 bg-black/70 backdrop-blur-sm z-40"
+            onClick={() => setShowOrders(false)}
+          />
+          <aside className="fixed right-0 top-0 bottom-0 w-full max-w-lg bg-[#141416] z-50 flex flex-col shadow-2xl transform transition-transform duration-500 ease-out">
+            {/* Header */}
+            <div className="p-6 border-b border-white/5 flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
+                  <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="text-xl font-semibold">My Orders</h3>
+                  <p className="text-sm text-white/40">{userOrders.length} order{userOrders.length !== 1 ? 's' : ''}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowOrders(false)}
+                className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center hover:bg-white/10 transition-colors"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Orders List */}
+            <div className="flex-1 overflow-y-auto p-6">
+              {loadingOrders ? (
+                <div className="flex items-center justify-center py-12">
+                  <svg className="animate-spin h-8 w-8 text-purple-400" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                </div>
+              ) : userOrders.length === 0 ? (
+                <div className="text-center py-16">
+                  <div className="w-20 h-20 rounded-full bg-white/5 flex items-center justify-center mx-auto mb-6">
+                    <svg className="w-10 h-10 text-white/20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+                    </svg>
+                  </div>
+                  <h4 className="text-lg font-medium text-white/60 mb-2">No orders yet</h4>
+                  <p className="text-white/40 text-sm mb-6">Your order history will appear here after you make a purchase.</p>
+                  <button
+                    onClick={() => { setShowOrders(false); }}
+                    className="px-6 py-3 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 text-black font-medium hover:shadow-lg hover:shadow-amber-500/25 transition-all"
+                  >
+                    Browse Gallery
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {userOrders.map(order => (
+                    <div key={order.id} className="rounded-2xl bg-white/5 border border-white/10 overflow-hidden">
+                      {/* Order Header */}
+                      <div className="p-4 bg-white/5 flex items-center justify-between">
+                        <div>
+                          <p className="font-semibold text-white">Order #{order.stripe_session_id?.slice(-8) || order.id.slice(0, 8)}</p>
+                          <p className="text-xs text-white/40">
+                            {new Date(order.created_at).toLocaleDateString('en-US', {
+                              weekday: 'short',
+                              year: 'numeric',
+                              month: 'short',
+                              day: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-xl font-bold text-amber-400">${order.total_amount}</p>
+                        </div>
+                      </div>
+
+                      {/* Status Banner */}
+                      <div className={`px-4 py-3 flex items-center gap-3 ${
+                        order.status === 'paid' ? 'bg-green-500/10' :
+                        order.status === 'shipped' ? 'bg-blue-500/10' :
+                        order.status === 'delivered' ? 'bg-purple-500/10' :
+                        order.status === 'failed' ? 'bg-red-500/10' :
+                        'bg-yellow-500/10'
+                      }`}>
+                        <div className={`w-3 h-3 rounded-full ${
+                          order.status === 'paid' ? 'bg-green-400' :
+                          order.status === 'shipped' ? 'bg-blue-400 animate-pulse' :
+                          order.status === 'delivered' ? 'bg-purple-400' :
+                          order.status === 'failed' ? 'bg-red-400' :
+                          'bg-yellow-400 animate-pulse'
+                        }`} />
+                        <span className={`text-sm font-medium ${
+                          order.status === 'paid' ? 'text-green-400' :
+                          order.status === 'shipped' ? 'text-blue-400' :
+                          order.status === 'delivered' ? 'text-purple-400' :
+                          order.status === 'failed' ? 'text-red-400' :
+                          'text-yellow-400'
+                        }`}>
+                          {order.status === 'paid' ? 'Payment Confirmed - Processing' :
+                           order.status === 'shipped' ? 'Shipped - On the way!' :
+                           order.status === 'delivered' ? 'Delivered' :
+                           order.status === 'failed' ? 'Payment Failed' :
+                           'Processing'}
+                        </span>
+                      </div>
+
+                      {/* Items */}
+                      <div className="p-4 space-y-3">
+                        {(order.items || []).map((item, idx) => (
+                          <div key={idx} className="flex items-center gap-4">
+                            {item.artworkImage && (
+                              <img src={item.artworkImage} alt="" className="w-16 h-16 rounded-xl object-cover" />
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <p className="font-medium text-white truncate">{item.artworkTitle || 'Artwork'}</p>
+                              <p className="text-sm text-white/40">{item.size} • {item.frameLabel || item.frame} frame</p>
+                            </div>
+                            <p className="text-white/70 font-medium">${item.price}</p>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Shipping & Tracking */}
+                      <div className="px-4 pb-4 space-y-3">
+                        {/* Shipping Address */}
+                        {order.shipping_address && (
+                          <div className="p-3 rounded-xl bg-white/5">
+                            <p className="text-xs text-white/40 uppercase tracking-wider mb-1">Shipping To</p>
+                            <p className="text-sm text-white/80">
+                              {order.shipping_address.name}
+                            </p>
+                            <p className="text-sm text-white/60">
+                              {order.shipping_address.line1}
+                              {order.shipping_address.line2 && `, ${order.shipping_address.line2}`}
+                            </p>
+                            <p className="text-sm text-white/60">
+                              {order.shipping_address.city}, {order.shipping_address.state} {order.shipping_address.postal_code}
+                            </p>
+                          </div>
+                        )}
+
+                        {/* Tracking Number */}
+                        {order.tracking_number && (
+                          <div className="p-3 rounded-xl bg-blue-500/10 border border-blue-500/20">
+                            <p className="text-xs text-blue-400 uppercase tracking-wider mb-1">Tracking Number</p>
+                            <div className="flex items-center justify-between">
+                              <p className="font-mono text-blue-300">{order.tracking_number}</p>
+                              <button
+                                onClick={() => {
+                                  navigator.clipboard.writeText(order.tracking_number);
+                                  showToastMessage('Tracking number copied!');
+                                }}
+                                className="text-xs text-blue-400 hover:text-blue-300"
+                              >
+                                Copy
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Prodigi Order ID */}
+                        {order.prodigi_order_id && (
+                          <div className="p-3 rounded-xl bg-white/5">
+                            <p className="text-xs text-white/40 uppercase tracking-wider mb-1">Production ID</p>
+                            <p className="font-mono text-sm text-white/60">{order.prodigi_order_id}</p>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Footer */}
+                      <div className="px-4 py-3 bg-white/5 border-t border-white/5 flex items-center justify-between">
+                        <p className="text-xs text-white/30">
+                          Confirmation sent to {order.customer_email}
+                        </p>
+                        {order.status === 'shipped' && order.tracking_number && (
+                          <a
+                            href={`https://www.google.com/search?q=${order.tracking_number}+tracking`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-purple-400 hover:text-purple-300 font-medium"
+                          >
+                            Track Package →
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 border-t border-white/5">
+              <button
+                onClick={fetchUserOrders}
+                disabled={loadingOrders}
+                className="w-full py-3 rounded-xl bg-white/5 text-white/60 font-medium hover:bg-white/10 transition-all flex items-center justify-center gap-2"
+              >
+                <svg className={`w-4 h-4 ${loadingOrders ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                Refresh Orders
+              </button>
+            </div>
           </aside>
         </>
       )}

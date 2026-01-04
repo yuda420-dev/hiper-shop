@@ -31,22 +31,21 @@ CREATE INDEX IF NOT EXISTS idx_orders_created ON orders(created_at);
 -- Enable Row Level Security (RLS)
 ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
 
--- Policy: Service role can do everything (for webhook)
-CREATE POLICY "Service role has full access to orders" ON orders
-  FOR ALL USING (true) WITH CHECK (true);
+-- Drop existing policies if they exist
+DROP POLICY IF EXISTS "Service role has full access to orders" ON orders;
+DROP POLICY IF EXISTS "Users can view own orders" ON orders;
+DROP POLICY IF EXISTS "Admin can view all orders" ON orders;
+DROP POLICY IF EXISTS "Admin can update all orders" ON orders;
+DROP POLICY IF EXISTS "Anyone can insert orders" ON orders;
+DROP POLICY IF EXISTS "Anyone can read orders by email" ON orders;
 
--- Policy: Users can view their own orders
-CREATE POLICY "Users can view own orders" ON orders
-  FOR SELECT USING (
-    auth.uid() = user_id OR
-    auth.jwt() ->> 'email' = customer_email
-  );
+-- Policy: Anyone can insert orders (for webhook with anon key)
+CREATE POLICY "Anyone can insert orders" ON orders
+  FOR INSERT WITH CHECK (true);
 
--- Policy: Admin can view all orders
-CREATE POLICY "Admin can view all orders" ON orders
-  FOR SELECT USING (
-    auth.jwt() ->> 'email' = 'hiper.6258@gmail.com'
-  );
+-- Policy: Anyone can read orders by email (for order lookup)
+CREATE POLICY "Anyone can read orders by email" ON orders
+  FOR SELECT USING (true);
 
 -- Policy: Admin can update all orders
 CREATE POLICY "Admin can update all orders" ON orders
@@ -54,7 +53,13 @@ CREATE POLICY "Admin can update all orders" ON orders
     auth.jwt() ->> 'email' = 'hiper.6258@gmail.com'
   );
 
+-- Policy: Admin can delete orders
+CREATE POLICY "Admin can delete orders" ON orders
+  FOR DELETE USING (
+    auth.jwt() ->> 'email' = 'hiper.6258@gmail.com'
+  );
+
 -- Grant permissions
 GRANT ALL ON orders TO service_role;
-GRANT SELECT ON orders TO authenticated;
-GRANT INSERT ON orders TO anon, authenticated;
+GRANT SELECT, INSERT ON orders TO anon;
+GRANT SELECT, INSERT ON orders TO authenticated;
