@@ -260,48 +260,53 @@ function SortableSeriesThumbnail({ art, index, isActive, onClick, onMoveLeft, on
     zIndex: isDragging ? 1000 : 'auto',
   };
 
+  // Detect touch device
+  const isTouchDevice = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
+
   return (
     <div className="relative group flex-shrink-0">
+      {/* Left arrow button - visible on touch devices when active */}
+      {isActive && isTouchDevice && !isFirst && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onMoveLeft?.(); }}
+          className="absolute -left-3 top-1/2 -translate-y-1/2 z-10 w-8 h-8 rounded-full bg-amber-500 text-black flex items-center justify-center shadow-lg active:scale-90 transition-transform"
+          style={{ touchAction: 'manipulation' }}
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M15 19l-7-7 7-7" />
+          </svg>
+        </button>
+      )}
+
       <div
         ref={setNodeRef}
         style={style}
-        {...attributes}
-        {...listeners}
+        {...(isTouchDevice ? {} : { ...attributes, ...listeners })}
         onClick={onClick}
-        className={`w-14 h-14 md:w-16 md:h-16 rounded-lg overflow-hidden cursor-grab active:cursor-grabbing transition-all ${
+        className={`w-16 h-16 md:w-16 md:h-16 rounded-xl overflow-hidden transition-all ${
           isActive
-            ? 'ring-2 ring-amber-500 scale-110'
+            ? 'ring-3 ring-amber-500 scale-110'
             : 'opacity-60 hover:opacity-90'
-        } ${isDragging ? 'ring-2 ring-white scale-105' : ''}`}
+        } ${isDragging ? 'ring-2 ring-white scale-105' : ''} ${!isTouchDevice ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}`}
       >
         <img src={art.image} alt={art.title} className="w-full h-full object-cover" draggable={false} />
         {/* Position number badge */}
-        <div className="absolute bottom-0.5 right-0.5 text-[10px] bg-black/70 text-white/80 px-1 rounded">
+        <div className="absolute bottom-0.5 right-0.5 text-[10px] bg-black/70 text-white/80 px-1.5 py-0.5 rounded font-medium">
           {index + 1}
         </div>
       </div>
-      {/* Mobile-friendly move buttons (visible on touch devices) */}
-      {isActive && (
-        <div className="absolute -top-8 left-1/2 -translate-x-1/2 flex gap-1 md:hidden">
-          <button
-            onClick={(e) => { e.stopPropagation(); onMoveLeft?.(); }}
-            disabled={isFirst}
-            className={`w-6 h-6 rounded-full flex items-center justify-center ${isFirst ? 'bg-white/10 text-white/30' : 'bg-amber-500 text-black'}`}
-          >
-            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M15 19l-7-7 7-7" />
-            </svg>
-          </button>
-          <button
-            onClick={(e) => { e.stopPropagation(); onMoveRight?.(); }}
-            disabled={isLast}
-            className={`w-6 h-6 rounded-full flex items-center justify-center ${isLast ? 'bg-white/10 text-white/30' : 'bg-amber-500 text-black'}`}
-          >
-            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M9 5l7 7-7 7" />
-            </svg>
-          </button>
-        </div>
+
+      {/* Right arrow button - visible on touch devices when active */}
+      {isActive && isTouchDevice && !isLast && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onMoveRight?.(); }}
+          className="absolute -right-3 top-1/2 -translate-y-1/2 z-10 w-8 h-8 rounded-full bg-amber-500 text-black flex items-center justify-center shadow-lg active:scale-90 transition-transform"
+          style={{ touchAction: 'manipulation' }}
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M9 5l7 7-7 7" />
+          </svg>
+        </button>
       )}
     </div>
   );
