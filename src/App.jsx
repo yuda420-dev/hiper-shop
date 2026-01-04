@@ -1129,15 +1129,32 @@ export default function ArtGallery() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [fullscreenImage, fullscreenIndex, fullscreenArtworks]);
 
-  // Load artworks from Supabase
+  // Load artworks from Supabase (uses shop_artworks view for Gallery→Shop sync)
   const loadArtworksFromDatabase = async (userId) => {
     try {
-      // Load all public artworks (is_public = true includes defaults and user uploads)
-      const { data, error } = await supabase
-        .from('artworks')
+      // Try to load from shop_artworks view first (includes shop overrides)
+      let data, error;
+
+      const shopResult = await supabase
+        .from('shop_artworks')
         .select('*')
-        .eq('is_public', true)
+        .eq('in_shop', true)
         .order('created_at', { ascending: false });
+
+      if (shopResult.error) {
+        // Fallback to artworks table if view doesn't exist yet
+        console.log('shop_artworks view not available, falling back to artworks table');
+        const artworksResult = await supabase
+          .from('artworks')
+          .select('*')
+          .eq('is_public', true)
+          .order('created_at', { ascending: false });
+        data = artworksResult.data;
+        error = artworksResult.error;
+      } else {
+        data = shopResult.data;
+        error = shopResult.error;
+      }
 
       if (error) throw error;
 
@@ -1160,6 +1177,7 @@ export default function ArtGallery() {
           .filter(art => !allDeletedIds.includes(String(art.id))) // Filter out deleted items (compare as strings)
           .map(art => ({
             id: art.id,
+            // Use shop overrides if available, otherwise fallback to original
             title: art.title,
             artist: art.artist,
             style: art.category,
@@ -1171,6 +1189,11 @@ export default function ArtGallery() {
             isNew: !art.is_default && art.user_id === userId,
             userId: art.user_id,
             user_id: art.user_id, // Keep both for compatibility
+            // Shop-specific fields from overrides
+            basePrice: art.base_price || 299,
+            featured: art.featured || false,
+            availableSizes: art.available_sizes || null,
+            availableFrames: art.available_frames || null,
           }));
 
         // Also load localStorage artworks and merge (for items not in DB)
