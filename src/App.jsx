@@ -4,6 +4,7 @@ import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, DragOv
 import { arrayMove, SortableContext, useSortable, rectSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { createProdigiOrder, isProdigiConfigured } from './services/prodigi';
+import * as analytics from './services/analytics';
 
 const defaultArtworks = [
   { id: 1, title: "Ethereal Dreams", artist: "HiPeR Gallery", style: "Abstract Expressionism", category: "abstract", description: "A mesmerizing exploration of color and form, where dreams meet reality in an ethereal dance of light.", image: "https://images.unsplash.com/photo-1541961017774-22349e4a1262?w=800&h=800&fit=crop", isDefault: true },
@@ -354,6 +355,8 @@ export default function ArtGallery() {
 
   // Analytics state (shared with gallery via same localStorage key)
   const [showAnalytics, setShowAnalytics] = useState(false);
+  const [supabaseAnalytics, setSupabaseAnalytics] = useState(null); // Cross-user analytics from Supabase
+  const [loadingSupabaseAnalytics, setLoadingSupabaseAnalytics] = useState(false);
   const [analyticsData, setAnalyticsData] = useState(() => {
     const saved = localStorage.getItem('hiperGalleryAnalytics');
     return saved ? JSON.parse(saved) : {
@@ -562,6 +565,7 @@ export default function ArtGallery() {
   const trackCartAddition = (item) => {
     const sizeName = item.size.name;
     const frameName = item.frame.name;
+    // Save to localStorage for immediate display
     saveShopAnalytics({
       cartAdditions: shopAnalytics.cartAdditions + 1,
       popularSizes: {
@@ -573,6 +577,8 @@ export default function ArtGallery() {
         [frameName]: (shopAnalytics.popularFrames[frameName] || 0) + 1,
       },
     });
+    // Also save to Supabase for cross-user analytics
+    analytics.trackCartAdd(item.artwork.id, item.artwork.title, sizeName, frameName, item.total, user?.id);
   };
 
   // Track checkout start
@@ -580,6 +586,8 @@ export default function ArtGallery() {
     saveShopAnalytics({
       checkoutStarts: shopAnalytics.checkoutStarts + 1,
     });
+    // Also save to Supabase
+    analytics.trackCheckoutStart(cartTotal, cart.length, user?.id);
   };
 
   // Track order completion
@@ -611,6 +619,9 @@ export default function ArtGallery() {
       },
       topSellingArtworks: updatedTopSelling,
     });
+    // Also save to Supabase
+    const orderId = `order_${Date.now()}`;
+    analytics.trackOrderComplete(orderId, orderTotal, cartItems, user?.id);
   };
 
   // Export to Notion-friendly markdown
@@ -799,6 +810,10 @@ export default function ArtGallery() {
     const isMobile = window.innerWidth < 768;
     const isTablet = window.innerWidth >= 768 && window.innerWidth < 1024;
 
+    // Track session in Supabase (for cross-user analytics)
+    analytics.trackSessionStart(user?.id);
+    analytics.trackPageView('shop', user?.id);
+
     setAnalyticsData(prev => {
       const updated = {
         ...prev,
@@ -872,6 +887,27 @@ export default function ArtGallery() {
       return updated;
     });
   };
+
+  // Fetch Supabase analytics for admin (cross-user data)
+  const fetchSupabaseAnalytics = async () => {
+    if (!isSupabaseConfigured()) return;
+    setLoadingSupabaseAnalytics(true);
+    try {
+      const summary = await analytics.getAnalyticsSummary(30);
+      setSupabaseAnalytics(summary);
+    } catch (error) {
+      console.error('Error fetching Supabase analytics:', error);
+    } finally {
+      setLoadingSupabaseAnalytics(false);
+    }
+  };
+
+  // Fetch analytics when modal opens (admin only)
+  useEffect(() => {
+    if (showAnalytics && getUserRole(user) === USER_ROLES.ADMIN) {
+      fetchSupabaseAnalytics();
+    }
+  }, [showAnalytics, user]);
 
   // Track page view on mount
   useEffect(() => {
@@ -949,6 +985,8 @@ export default function ArtGallery() {
   // Toggle favorite
   const toggleFavorite = (artworkId, e) => {
     if (e) e.stopPropagation();
+    const isAdding = !favorites.includes(artworkId);
+    const artwork = artworks.find(a => a.id === artworkId);
     setFavorites(prev => {
       const newFavorites = prev.includes(artworkId)
         ? prev.filter(id => id !== artworkId)
@@ -956,8 +994,10 @@ export default function ArtGallery() {
       localStorage.setItem('hiperGalleryFavorites', JSON.stringify(newFavorites));
       return newFavorites;
     });
-    // Track favorite action
+    // Track favorite action in localStorage
     trackFavoriteAction();
+    // Track in Supabase for cross-user analytics
+    analytics.trackFavorite(artworkId, artwork?.title, isAdding ? 'add' : 'remove', user?.id);
   };
 
   const isFavorite = (artworkId) => favorites.includes(artworkId);
@@ -1838,6 +1878,10 @@ export default function ArtGallery() {
     setSelectedFrame(1);
     setEditingArt(null);
     setTimeout(() => setIsModalOpen(true), 10);
+    // Track in localStorage
+    trackArtworkView(art.id, art.category);
+    // Track in Supabase for cross-user analytics
+    analytics.trackArtworkView(art.id, art.title, user?.id);
   };
 
   const openEditModal = (art, e) => {
@@ -4017,8 +4061,11 @@ export default function ArtGallery() {
                     </svg>
                   </div>
                   <div>
-                    <h3 className="text-xl font-semibold">Gallery Analytics</h3>
-                    <p className="text-sm text-white/40">Comprehensive insights into your gallery</p>
+                    <h3 className="text-xl font-semibold">Shop Analytics</h3>
+                    <p className="text-sm text-white/40">
+                      {supabaseAnalytics ? 'All users (last 30 days)' : 'This device only'}
+                      {loadingSupabaseAnalytics && ' - Loading...'}
+                    </p>
                   </div>
                 </div>
                 <button
@@ -4033,23 +4080,44 @@ export default function ArtGallery() {
             </div>
 
             <div className="p-6 overflow-y-auto max-h-[calc(90vh-120px)]">
-              {/* Key Metrics */}
+              {/* All Users Badge */}
+              {supabaseAnalytics && (
+                <div className="mb-4 p-3 rounded-xl bg-gradient-to-r from-purple-500/20 to-pink-500/20 border border-purple-500/30 flex items-center gap-3">
+                  <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                  </svg>
+                  <div>
+                    <p className="text-sm font-medium text-white">Cross-User Analytics Active</p>
+                    <p className="text-xs text-white/50">{supabaseAnalytics.uniqueUsers} unique users tracked</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Key Metrics - Use Supabase data when available */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
                 <div className="p-4 rounded-xl bg-gradient-to-br from-amber-500/20 to-orange-500/20 border border-amber-500/30">
-                  <p className="text-3xl font-bold text-amber-400">{analyticsData.totalViews}</p>
+                  <p className="text-3xl font-bold text-amber-400">
+                    {supabaseAnalytics?.totalPageViews ?? analyticsData.totalViews}
+                  </p>
                   <p className="text-xs text-white/50">Total Page Views</p>
                 </div>
                 <div className="p-4 rounded-xl bg-gradient-to-br from-blue-500/20 to-cyan-500/20 border border-blue-500/30">
-                  <p className="text-3xl font-bold text-blue-400">{analyticsData.sessionCount}</p>
+                  <p className="text-3xl font-bold text-blue-400">
+                    {supabaseAnalytics?.totalSessions ?? analyticsData.sessionCount}
+                  </p>
                   <p className="text-xs text-white/50">Sessions</p>
                 </div>
                 <div className="p-4 rounded-xl bg-gradient-to-br from-purple-500/20 to-pink-500/20 border border-purple-500/30">
-                  <p className="text-3xl font-bold text-purple-400">{analyticsData.favoriteActions}</p>
-                  <p className="text-xs text-white/50">Favorite Actions</p>
+                  <p className="text-3xl font-bold text-purple-400">
+                    {supabaseAnalytics?.totalFavorites ?? analyticsData.favoriteActions}
+                  </p>
+                  <p className="text-xs text-white/50">Favorites</p>
                 </div>
                 <div className="p-4 rounded-xl bg-gradient-to-br from-green-500/20 to-emerald-500/20 border border-green-500/30">
-                  <p className="text-3xl font-bold text-green-400">{analyticsData.uploadCount}</p>
-                  <p className="text-xs text-white/50">Uploads</p>
+                  <p className="text-3xl font-bold text-green-400">
+                    {supabaseAnalytics?.totalArtworkViews ?? analyticsData.uploadCount}
+                  </p>
+                  <p className="text-xs text-white/50">Artwork Views</p>
                 </div>
               </div>
 
@@ -4085,27 +4153,30 @@ export default function ArtGallery() {
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
                       </svg>
-                      Device Types
+                      Device Types {supabaseAnalytics && '(All Users)'}
                     </h4>
                     <div className="space-y-3">
-                      {[
-                        { label: 'Desktop', count: analyticsData.deviceTypes.desktop, icon: '🖥️', color: 'from-blue-500 to-cyan-500' },
-                        { label: 'Tablet', count: analyticsData.deviceTypes.tablet, icon: '📱', color: 'from-purple-500 to-pink-500' },
-                        { label: 'Mobile', count: analyticsData.deviceTypes.mobile, icon: '📲', color: 'from-green-500 to-emerald-500' },
-                      ].map(device => {
-                        const total = analyticsData.deviceTypes.desktop + analyticsData.deviceTypes.tablet + analyticsData.deviceTypes.mobile;
-                        const pct = total > 0 ? (device.count / total) * 100 : 0;
-                        return (
-                          <div key={device.label} className="flex items-center gap-3">
-                            <span className="text-lg">{device.icon}</span>
-                            <span className="w-16 text-sm text-white/60">{device.label}</span>
-                            <div className="flex-1 h-2 rounded-full bg-white/10 overflow-hidden">
-                              <div className={`h-full rounded-full bg-gradient-to-r ${device.color}`} style={{ width: `${pct}%` }} />
+                      {(() => {
+                        const deviceData = supabaseAnalytics?.deviceTypes || analyticsData.deviceTypes;
+                        return [
+                          { label: 'Desktop', count: deviceData.desktop || 0, icon: '🖥️', color: 'from-blue-500 to-cyan-500' },
+                          { label: 'Tablet', count: deviceData.tablet || 0, icon: '📱', color: 'from-purple-500 to-pink-500' },
+                          { label: 'Mobile', count: deviceData.mobile || 0, icon: '📲', color: 'from-green-500 to-emerald-500' },
+                        ].map(device => {
+                          const total = (deviceData.desktop || 0) + (deviceData.tablet || 0) + (deviceData.mobile || 0);
+                          const pct = total > 0 ? (device.count / total) * 100 : 0;
+                          return (
+                            <div key={device.label} className="flex items-center gap-3">
+                              <span className="text-lg">{device.icon}</span>
+                              <span className="w-16 text-sm text-white/60">{device.label}</span>
+                              <div className="flex-1 h-2 rounded-full bg-white/10 overflow-hidden">
+                                <div className={`h-full rounded-full bg-gradient-to-r ${device.color}`} style={{ width: `${pct}%` }} />
+                              </div>
+                              <span className="w-12 text-sm text-white/40 text-right">{device.count}</span>
                             </div>
-                            <span className="w-12 text-sm text-white/40 text-right">{device.count}</span>
-                          </div>
-                        );
-                      })}
+                          );
+                        });
+                      })()}
                     </div>
                   </div>
 
@@ -4115,12 +4186,13 @@ export default function ArtGallery() {
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                       </svg>
-                      Activity by Hour
+                      Activity by Hour {supabaseAnalytics && '(All Users)'}
                     </h4>
                     <div className="flex items-end gap-1 h-20">
                       {Array.from({ length: 24 }, (_, i) => {
-                        const count = analyticsData.hourlyActivity[i] || 0;
-                        const maxCount = Math.max(...Object.values(analyticsData.hourlyActivity || { 0: 1 }), 1);
+                        const hourlyData = supabaseAnalytics?.hourlyActivity || analyticsData.hourlyActivity || {};
+                        const count = hourlyData[i] || 0;
+                        const maxCount = Math.max(...Object.values(hourlyData).map(v => Number(v) || 0), 1);
                         const height = (count / maxCount) * 100;
                         return (
                           <div
@@ -4288,25 +4360,25 @@ export default function ArtGallery() {
                   <svg className="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
-                  Shop Performance
+                  Shop Performance {supabaseAnalytics && '(All Users)'}
                 </h3>
 
-                {/* Revenue Metrics */}
+                {/* Revenue Metrics - Use Supabase data when available */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
                   <div className="p-4 rounded-xl bg-gradient-to-br from-green-500/20 to-emerald-500/20 border border-green-500/30">
-                    <p className="text-3xl font-bold text-green-400">${shopAnalytics.totalRevenue}</p>
+                    <p className="text-3xl font-bold text-green-400">${supabaseAnalytics?.totalRevenue ?? shopAnalytics.totalRevenue}</p>
                     <p className="text-xs text-white/50">Total Revenue</p>
                   </div>
                   <div className="p-4 rounded-xl bg-gradient-to-br from-blue-500/20 to-cyan-500/20 border border-blue-500/30">
-                    <p className="text-3xl font-bold text-blue-400">{shopAnalytics.totalOrders}</p>
+                    <p className="text-3xl font-bold text-blue-400">{supabaseAnalytics?.totalOrders ?? shopAnalytics.totalOrders}</p>
                     <p className="text-xs text-white/50">Orders</p>
                   </div>
                   <div className="p-4 rounded-xl bg-gradient-to-br from-purple-500/20 to-pink-500/20 border border-purple-500/30">
-                    <p className="text-3xl font-bold text-purple-400">${shopAnalytics.averageOrderValue}</p>
+                    <p className="text-3xl font-bold text-purple-400">${supabaseAnalytics?.averageOrderValue ?? shopAnalytics.averageOrderValue}</p>
                     <p className="text-xs text-white/50">Avg Order Value</p>
                   </div>
                   <div className="p-4 rounded-xl bg-gradient-to-br from-amber-500/20 to-orange-500/20 border border-amber-500/30">
-                    <p className="text-3xl font-bold text-amber-400">{shopAnalytics.conversionRate}%</p>
+                    <p className="text-3xl font-bold text-amber-400">{supabaseAnalytics?.conversionRate ?? shopAnalytics.conversionRate}%</p>
                     <p className="text-xs text-white/50">Conversion Rate</p>
                   </div>
                 </div>
@@ -4314,62 +4386,64 @@ export default function ArtGallery() {
                 {/* Funnel Metrics */}
                 <div className="grid grid-cols-3 gap-3 mb-6">
                   <div className="p-4 rounded-xl bg-white/5 border border-white/10 text-center">
-                    <p className="text-2xl font-bold text-white">{shopAnalytics.cartAdditions}</p>
+                    <p className="text-2xl font-bold text-white">{supabaseAnalytics?.totalCartAdds ?? shopAnalytics.cartAdditions}</p>
                     <p className="text-xs text-white/50">Cart Additions</p>
                   </div>
                   <div className="p-4 rounded-xl bg-white/5 border border-white/10 text-center">
-                    <p className="text-2xl font-bold text-white">{shopAnalytics.checkoutStarts}</p>
+                    <p className="text-2xl font-bold text-white">{supabaseAnalytics?.totalCheckoutStarts ?? shopAnalytics.checkoutStarts}</p>
                     <p className="text-xs text-white/50">Checkouts Started</p>
                   </div>
                   <div className="p-4 rounded-xl bg-white/5 border border-white/10 text-center">
-                    <p className="text-2xl font-bold text-white">{shopAnalytics.checkoutCompletions}</p>
+                    <p className="text-2xl font-bold text-white">{supabaseAnalytics?.totalOrders ?? shopAnalytics.checkoutCompletions}</p>
                     <p className="text-xs text-white/50">Orders Completed</p>
                   </div>
                 </div>
 
                 <div className="grid md:grid-cols-2 gap-6">
-                  {/* Popular Sizes */}
+                  {/* Popular Sizes - Use Supabase data when available */}
                   <div className="p-4 rounded-xl bg-white/5 border border-white/10">
-                    <h4 className="text-sm font-medium text-white/70 mb-4">Popular Sizes</h4>
+                    <h4 className="text-sm font-medium text-white/70 mb-4">Popular Sizes {supabaseAnalytics && '(All Users)'}</h4>
                     <div className="space-y-2">
-                      {Object.entries(shopAnalytics.popularSizes || {})
-                        .sort((a, b) => b[1] - a[1])
-                        .slice(0, 4)
-                        .map(([name, count]) => {
-                          const total = Object.values(shopAnalytics.popularSizes || {}).reduce((a, b) => a + b, 1);
-                          const percent = Math.round((count / total) * 100);
+                      {(() => {
+                        const sizeData = supabaseAnalytics?.popularSizes || Object.entries(shopAnalytics.popularSizes || {}).map(([name, count]) => ({ name, count }));
+                        const sizeItems = Array.isArray(sizeData) ? sizeData : Object.entries(sizeData).map(([name, count]) => ({ name, count }));
+                        return sizeItems.slice(0, 4).map(item => {
+                          const total = sizeItems.reduce((sum, s) => sum + (s.count || 0), 1);
+                          const percent = Math.round(((item.count || 0) / total) * 100);
                           return (
-                            <div key={name} className="flex items-center gap-3">
-                              <span className="text-sm text-white/60 w-20">{name}</span>
+                            <div key={item.name} className="flex items-center gap-3">
+                              <span className="text-sm text-white/60 w-20">{item.name}</span>
                               <div className="flex-1 h-2 bg-white/10 rounded-full overflow-hidden">
                                 <div
                                   className="h-full bg-gradient-to-r from-amber-500 to-orange-500"
                                   style={{ width: `${percent}%` }}
                                 />
                               </div>
-                              <span className="text-sm text-white/40 w-12 text-right">{count}</span>
+                              <span className="text-sm text-white/40 w-12 text-right">{item.count}</span>
                             </div>
                           );
-                        })}
-                      {Object.keys(shopAnalytics.popularSizes || {}).length === 0 && (
+                        });
+                      })()}
+                      {!supabaseAnalytics && Object.keys(shopAnalytics.popularSizes || {}).length === 0 && (
+                        <p className="text-sm text-white/30 text-center py-4">No data yet</p>
+                      )}
+                      {supabaseAnalytics && (!supabaseAnalytics.popularSizes || supabaseAnalytics.popularSizes.length === 0) && (
                         <p className="text-sm text-white/30 text-center py-4">No data yet</p>
                       )}
                     </div>
                   </div>
 
-                  {/* Popular Frames */}
+                  {/* Popular Frames - Use Supabase data when available */}
                   <div className="p-4 rounded-xl bg-white/5 border border-white/10">
-                    <h4 className="text-sm font-medium text-white/70 mb-4">Popular Frames</h4>
+                    <h4 className="text-sm font-medium text-white/70 mb-4">Popular Frames {supabaseAnalytics && '(All Users)'}</h4>
                     <div className="space-y-2">
-                      {Object.entries(shopAnalytics.popularFrames || {})
-                        .sort((a, b) => b[1] - a[1])
-                        .slice(0, 6)
-                        .map(([name, count]) => {
-                          const frame = frames.find(f => f.name === name);
-                          const total = Object.values(shopAnalytics.popularFrames || {}).reduce((a, b) => a + b, 1);
-                          const percent = Math.round((count / total) * 100);
+                      {(() => {
+                        const frameData = supabaseAnalytics?.popularFrames || Object.entries(shopAnalytics.popularFrames || {}).map(([name, count]) => ({ name, count }));
+                        const frameItems = Array.isArray(frameData) ? frameData : Object.entries(frameData).map(([name, count]) => ({ name, count }));
+                        return frameItems.slice(0, 6).map(item => {
+                          const frame = frames.find(f => f.name === item.name);
                           return (
-                            <div key={name} className="flex items-center gap-3">
+                            <div key={item.name} className="flex items-center gap-3">
                               <div
                                 className="w-4 h-4 rounded border"
                                 style={{
@@ -4377,36 +4451,44 @@ export default function ArtGallery() {
                                   borderColor: frame?.color === 'transparent' ? '#333' : frame?.color
                                 }}
                               />
-                              <span className="text-sm text-white/60 flex-1">{frame?.label || name}</span>
-                              <span className="text-sm text-white/40">{count}</span>
+                              <span className="text-sm text-white/60 flex-1">{frame?.label || item.name}</span>
+                              <span className="text-sm text-white/40">{item.count}</span>
                             </div>
                           );
-                        })}
-                      {Object.keys(shopAnalytics.popularFrames || {}).length === 0 && (
+                        });
+                      })()}
+                      {!supabaseAnalytics && Object.keys(shopAnalytics.popularFrames || {}).length === 0 && (
+                        <p className="text-sm text-white/30 text-center py-4">No data yet</p>
+                      )}
+                      {supabaseAnalytics && (!supabaseAnalytics.popularFrames || supabaseAnalytics.popularFrames.length === 0) && (
                         <p className="text-sm text-white/30 text-center py-4">No data yet</p>
                       )}
                     </div>
                   </div>
                 </div>
 
-                {/* Top Selling Artworks */}
+                {/* Top Selling Artworks - Use Supabase data when available */}
                 <div className="mt-6 p-4 rounded-xl bg-white/5 border border-white/10">
-                  <h4 className="text-sm font-medium text-white/70 mb-4">Top Selling Artworks</h4>
+                  <h4 className="text-sm font-medium text-white/70 mb-4">Top Selling Artworks {supabaseAnalytics && '(All Users)'}</h4>
                   <div className="space-y-3">
-                    {Object.entries(shopAnalytics.topSellingArtworks || {})
-                      .sort((a, b) => b[1].revenue - a[1].revenue)
-                      .slice(0, 5)
-                      .map(([id, data], index) => (
-                        <div key={id} className="flex items-center gap-3">
+                    {(() => {
+                      const topSelling = supabaseAnalytics?.topSellingArtworks ||
+                        Object.entries(shopAnalytics.topSellingArtworks || {}).map(([id, data]) => ({ id, ...data }));
+                      return topSelling.slice(0, 5).map((item, index) => (
+                        <div key={item.id} className="flex items-center gap-3">
                           <span className="w-6 h-6 rounded-full bg-amber-500/20 text-amber-400 text-xs font-bold flex items-center justify-center">
                             {index + 1}
                           </span>
-                          <span className="text-sm text-white/70 flex-1 truncate">{data.title}</span>
-                          <span className="text-sm text-white/40">{data.count} sold</span>
-                          <span className="text-sm text-green-400 font-medium">${data.revenue}</span>
+                          <span className="text-sm text-white/70 flex-1 truncate">{item.title}</span>
+                          <span className="text-sm text-white/40">{item.count} sold</span>
+                          <span className="text-sm text-green-400 font-medium">${item.revenue}</span>
                         </div>
-                      ))}
-                    {Object.keys(shopAnalytics.topSellingArtworks || {}).length === 0 && (
+                      ));
+                    })()}
+                    {!supabaseAnalytics && Object.keys(shopAnalytics.topSellingArtworks || {}).length === 0 && (
+                      <p className="text-sm text-white/30 text-center py-4">No sales yet</p>
+                    )}
+                    {supabaseAnalytics && (!supabaseAnalytics.topSellingArtworks || supabaseAnalytics.topSellingArtworks.length === 0) && (
                       <p className="text-sm text-white/30 text-center py-4">No sales yet</p>
                     )}
                   </div>
