@@ -14,15 +14,15 @@ const defaultArtworks = [
   { id: 6, title: "Chromatic Flow", artist: "HiPeR Gallery", style: "Abstract Fluid Art", category: "abstract", description: "Vibrant colors cascade and merge in this hypnotic study of movement and harmony.", image: "https://images.unsplash.com/photo-1567095761054-7a02e69e5c43?w=800&h=800&fit=crop", isDefault: true },
 ];
 
-// Sizes and frames - kept for future shop feature
-const sizes = [
+// Default sizes and frames - can be customized by admin
+const defaultSizes = [
   { name: "Small", dimensions: '12" × 12"', price: 149, desc: "Perfect for intimate spaces" },
   { name: "Medium", dimensions: '24" × 24"', price: 299, desc: "Ideal statement piece" },
   { name: "Large", dimensions: '36" × 36"', price: 449, desc: "Gallery-worthy presence" },
   { name: "Grand", dimensions: '48" × 48"', price: 699, desc: "Museum-scale impact" },
 ];
 
-const frames = [
+const defaultFrames = [
   { name: "none", label: "Canvas Only", price: 0, color: "transparent" },
   { name: "black", label: "Matte Black", price: 89, color: "#1a1a1a" },
   { name: "white", label: "Gallery White", price: 89, color: "#f5f5f5" },
@@ -30,6 +30,32 @@ const frames = [
   { name: "walnut", label: "Dark Walnut", price: 119, color: "#5c4033" },
   { name: "gold", label: "Antique Gold", price: 149, color: "#d4af37" },
 ];
+
+// Load saved prices from localStorage or use defaults
+const loadSavedPrices = () => {
+  const saved = localStorage.getItem('hiperShopPrices');
+  if (saved) {
+    try {
+      return JSON.parse(saved);
+    } catch (e) {
+      return null;
+    }
+  }
+  return null;
+};
+
+// Load saved shipping info from localStorage
+const loadSavedShippingInfo = () => {
+  const saved = localStorage.getItem('hiperShopShippingInfo');
+  if (saved) {
+    try {
+      return JSON.parse(saved);
+    } catch (e) {
+      return null;
+    }
+  }
+  return null;
+};
 
 const categories = ['abstract', 'surreal', 'nature', 'portrait', 'landscape', 'geometric', 'minimal', 'digital', 'mixed-media'];
 
@@ -395,6 +421,20 @@ export default function ArtGallery() {
   // Settings/Export state
   const [showSettings, setShowSettings] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showPriceSettings, setShowPriceSettings] = useState(false);
+
+  // Customizable prices (admin only)
+  const [sizes, setSizes] = useState(() => {
+    const saved = loadSavedPrices();
+    return saved?.sizes || defaultSizes;
+  });
+  const [frames, setFrames] = useState(() => {
+    const saved = loadSavedPrices();
+    return saved?.frames || defaultFrames;
+  });
+
+  // Saved shipping info for auto-fill
+  const [savedShippingInfo, setSavedShippingInfo] = useState(() => loadSavedShippingInfo());
 
   // Touch/swipe state for series carousel
   const [touchStart, setTouchStart] = useState(null);
@@ -437,6 +477,52 @@ export default function ArtGallery() {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
     showToastMessage(`Exported ${userArtworks.length} artworks to JSON`);
+  };
+
+  // Save prices to localStorage (admin only)
+  const savePrices = (newSizes, newFrames) => {
+    const priceData = { sizes: newSizes, frames: newFrames };
+    localStorage.setItem('hiperShopPrices', JSON.stringify(priceData));
+    setSizes(newSizes);
+    setFrames(newFrames);
+    showToastMessage('Prices updated successfully!');
+  };
+
+  // Update individual size price
+  const updateSizePrice = (index, newPrice) => {
+    const newSizes = [...sizes];
+    newSizes[index] = { ...newSizes[index], price: parseInt(newPrice) || 0 };
+    savePrices(newSizes, frames);
+  };
+
+  // Update individual frame price
+  const updateFramePrice = (index, newPrice) => {
+    const newFrames = [...frames];
+    newFrames[index] = { ...newFrames[index], price: parseInt(newPrice) || 0 };
+    savePrices(sizes, newFrames);
+  };
+
+  // Save shipping info for auto-fill
+  const saveShippingInfo = () => {
+    localStorage.setItem('hiperShopShippingInfo', JSON.stringify(shippingInfo));
+    setSavedShippingInfo(shippingInfo);
+    showToastMessage('Shipping info saved for future orders!');
+  };
+
+  // Auto-fill shipping from saved info
+  const autoFillShipping = () => {
+    if (savedShippingInfo) {
+      setShippingInfo(savedShippingInfo);
+      showToastMessage('Shipping info auto-filled!');
+    } else if (user) {
+      // Pre-fill from user profile
+      setShippingInfo(prev => ({
+        ...prev,
+        name: user.user_metadata?.name || user.name || '',
+        email: user.email || '',
+      }));
+      showToastMessage('Contact info auto-filled from your account!');
+    }
   };
 
   // Export to Notion-friendly markdown
@@ -3674,6 +3760,27 @@ export default function ArtGallery() {
                 </button>
               </div>
 
+              {/* Admin: Price Settings */}
+              {getUserRole(user) === USER_ROLES.ADMIN && (
+                <div className="space-y-3 mb-6">
+                  <h4 className="text-sm font-medium text-white/50 uppercase tracking-wider">Admin Controls</h4>
+                  <button
+                    onClick={() => { setShowSettings(false); setShowPriceSettings(true); }}
+                    className="w-full p-4 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 transition-all flex items-center gap-4 text-left"
+                  >
+                    <div className="w-10 h-10 rounded-lg bg-amber-500/20 flex items-center justify-center">
+                      <svg className="w-5 h-5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </div>
+                    <div>
+                      <p className="font-medium">Price Settings</p>
+                      <p className="text-sm text-white/40">Adjust sizes and frame prices</p>
+                    </div>
+                  </button>
+                </div>
+              )}
+
               {/* Info */}
               <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 mb-6">
                 <p className="text-sm text-amber-200/80">
@@ -3687,6 +3794,111 @@ export default function ArtGallery() {
                 className="w-full py-4 rounded-xl border border-white/10 text-white/70 font-medium hover:bg-white/5 transition-all"
               >
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Price Settings Modal - Admin Only */}
+      {showPriceSettings && getUserRole(user) === USER_ROLES.ADMIN && (
+        <div
+          className="fixed inset-0 z-50 bg-black/90 backdrop-blur-xl flex items-center justify-center p-4 overflow-y-auto"
+          onClick={() => setShowPriceSettings(false)}
+        >
+          <div
+            className="bg-[#141416] rounded-3xl max-w-2xl w-full max-h-[90vh] overflow-hidden shadow-2xl my-8"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="p-6 border-b border-white/5">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center">
+                  <svg className="w-6 h-6 text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="text-xl font-semibold">Price Settings</h3>
+                  <p className="text-sm text-white/40">Customize print sizes and frame prices</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-6 overflow-y-auto max-h-[calc(90vh-180px)]">
+              {/* Size Prices */}
+              <div className="mb-8">
+                <h4 className="text-sm font-medium text-white/50 uppercase tracking-wider mb-4">Print Sizes</h4>
+                <div className="space-y-3">
+                  {sizes.map((size, index) => (
+                    <div key={size.name} className="flex items-center gap-4 p-4 rounded-xl bg-white/5">
+                      <div className="flex-1">
+                        <p className="font-medium">{size.name}</p>
+                        <p className="text-sm text-white/40">{size.dimensions}</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-white/40">$</span>
+                        <input
+                          type="number"
+                          value={size.price}
+                          onChange={(e) => updateSizePrice(index, e.target.value)}
+                          className="w-24 px-3 py-2 rounded-lg bg-white/10 border border-white/10 focus:border-amber-500/50 focus:outline-none text-right"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Frame Prices */}
+              <div className="mb-6">
+                <h4 className="text-sm font-medium text-white/50 uppercase tracking-wider mb-4">Frame Options</h4>
+                <div className="space-y-3">
+                  {frames.map((frame, index) => (
+                    <div key={frame.name} className="flex items-center gap-4 p-4 rounded-xl bg-white/5">
+                      <div
+                        className="w-8 h-8 rounded-lg border-2 flex-shrink-0"
+                        style={{
+                          backgroundColor: frame.color === 'transparent' ? '#1a1a1a' : frame.color,
+                          borderColor: frame.color === 'transparent' ? '#333' : frame.color
+                        }}
+                      />
+                      <div className="flex-1">
+                        <p className="font-medium">{frame.label}</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-white/40">$</span>
+                        <input
+                          type="number"
+                          value={frame.price}
+                          onChange={(e) => updateFramePrice(index, e.target.value)}
+                          className="w-24 px-3 py-2 rounded-lg bg-white/10 border border-white/10 focus:border-amber-500/50 focus:outline-none text-right"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Reset to defaults */}
+              <button
+                onClick={() => {
+                  setSizes(defaultSizes);
+                  setFrames(defaultFrames);
+                  localStorage.removeItem('hiperShopPrices');
+                  showToastMessage('Prices reset to defaults');
+                }}
+                className="w-full py-3 rounded-xl border border-white/10 text-white/50 font-medium hover:bg-white/5 transition-all mb-4"
+              >
+                Reset to Default Prices
+              </button>
+            </div>
+
+            <div className="p-6 border-t border-white/5">
+              <button
+                onClick={() => setShowPriceSettings(false)}
+                className="w-full py-4 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-black font-semibold hover:shadow-lg hover:shadow-amber-500/25 transition-all"
+              >
+                Done
               </button>
             </div>
           </div>
@@ -4579,6 +4791,35 @@ export default function ArtGallery() {
               {/* Shipping Step */}
               {checkoutStep === 'shipping' && (
                 <form onSubmit={handleShippingSubmit} className="space-y-4">
+                  {/* Apple-style Auto-fill Button */}
+                  {(savedShippingInfo || user) && (
+                    <button
+                      type="button"
+                      onClick={autoFillShipping}
+                      className="w-full p-4 rounded-xl bg-gradient-to-r from-blue-500/20 to-cyan-500/20 border border-blue-500/30 hover:border-blue-400/50 transition-all flex items-center gap-3"
+                    >
+                      <div className="w-10 h-10 rounded-full bg-blue-500/30 flex items-center justify-center flex-shrink-0">
+                        <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                        </svg>
+                      </div>
+                      <div className="text-left flex-1">
+                        <p className="font-medium text-blue-300">
+                          {savedShippingInfo ? 'Use Saved Address' : 'Use Account Info'}
+                        </p>
+                        <p className="text-xs text-blue-400/60">
+                          {savedShippingInfo
+                            ? `${savedShippingInfo.name} • ${savedShippingInfo.city}, ${savedShippingInfo.state}`
+                            : 'Auto-fill from your account'
+                          }
+                        </p>
+                      </div>
+                      <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                      </svg>
+                    </button>
+                  )}
+
                   <div>
                     <label className="block text-sm text-white/60 mb-2">Full Name *</label>
                     <input
@@ -4695,6 +4936,25 @@ export default function ArtGallery() {
                       </div>
                     </div>
                   </div>
+
+                  {/* Save address checkbox */}
+                  <label className="flex items-center gap-3 p-3 rounded-xl bg-white/5 cursor-pointer hover:bg-white/10 transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={!!savedShippingInfo}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          saveShippingInfo();
+                        } else {
+                          localStorage.removeItem('hiperShopShippingInfo');
+                          setSavedShippingInfo(null);
+                          showToastMessage('Saved address removed');
+                        }
+                      }}
+                      className="w-5 h-5 rounded border-white/20 bg-white/10 checked:bg-amber-500 checked:border-amber-500"
+                    />
+                    <span className="text-sm text-white/60">Save this address for future orders</span>
+                  </label>
 
                   <p className="text-xs text-white/40 mt-4">
                     Museum-quality giclée prints on archival fine art canvas. Printed and shipped by our fulfillment partner.
