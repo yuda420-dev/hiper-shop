@@ -1,6 +1,11 @@
 import Stripe from 'stripe';
+import { createClient } from '@supabase/supabase-js';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+const supabase = createClient(
+  process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL,
+  process.env.VITE_SUPABASE_ANON_KEY
+);
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -26,12 +31,67 @@ export default async function handler(req, res) {
       console.error('Failed to parse cart metadata:', e);
     }
 
+    const totalAmount = session.amount_total / 100;
+    const shippingAddress = session.shipping_details?.address || {};
+    const shippingName = session.shipping_details?.name || '';
+    const customerEmail = session.customer_details?.email;
+    const userId = session.metadata?.user_id || null;
+
+    // Save order to Supabase if payment was successful
+    if (session.payment_status === 'paid') {
+      // Check if order already exists
+      const { data: existingOrder } = await supabase
+        .from('orders')
+        .select('id')
+        .eq('stripe_session_id', session.id)
+        .single();
+
+      if (!existingOrder) {
+        // Create order record
+        const orderData = {
+          stripe_session_id: session.id,
+          stripe_payment_intent: session.payment_intent?.id,
+          status: 'paid',
+          total_amount: totalAmount,
+          currency: session.currency,
+          customer_email: customerEmail,
+          user_id: userId || null,
+          shipping_address: {
+            name: shippingName,
+            line1: shippingAddress.line1,
+            line2: shippingAddress.line2,
+            city: shippingAddress.city,
+            state: shippingAddress.state,
+            postal_code: shippingAddress.postal_code,
+            country: shippingAddress.country,
+          },
+          items: cartItems,
+          metadata: {
+            shipping_cost: session.shipping_cost?.amount_total / 100 || 0,
+            payment_status: session.payment_status,
+          },
+        };
+
+        const { data: newOrder, error: insertError } = await supabase
+          .from('orders')
+          .insert(orderData)
+          .select()
+          .single();
+
+        if (insertError) {
+          console.error('Failed to save order:', insertError);
+        } else {
+          console.log('Order saved:', newOrder.id);
+        }
+      }
+    }
+
     return res.status(200).json({
       success: session.payment_status === 'paid',
       orderId: session.id,
       paymentIntent: session.payment_intent?.id,
-      customerEmail: session.customer_details?.email,
-      totalAmount: session.amount_total / 100,
+      customerEmail: customerEmail,
+      totalAmount: totalAmount,
       currency: session.currency,
       shippingAddress: session.shipping_details,
       items: cartItems,

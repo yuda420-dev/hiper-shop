@@ -1016,6 +1016,10 @@ export default function ArtGallery() {
       setUser(session?.user ?? null);
       // Reload artworks when auth changes to show user's own works
       loadArtworksFromDatabase(session?.user?.id ?? null);
+      // Fetch orders for the user
+      if (session?.user) {
+        setTimeout(() => fetchUserOrders(), 500);
+      }
     });
 
     return () => subscription.unsubscribe();
