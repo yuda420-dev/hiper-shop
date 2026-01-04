@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { supabase, isSupabaseConfigured } from './lib/supabase';
-import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, DragOverlay } from '@dnd-kit/core';
+import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors, DragOverlay } from '@dnd-kit/core';
 import { arrayMove, SortableContext, useSortable, rectSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { createProdigiOrder, isProdigiConfigured } from './services/prodigi';
@@ -260,53 +260,35 @@ function SortableSeriesThumbnail({ art, index, isActive, onClick, onMoveLeft, on
     zIndex: isDragging ? 1000 : 'auto',
   };
 
-  // Detect touch device
-  const isTouchDevice = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
-
   return (
-    <div className="relative group flex-shrink-0">
-      {/* Left arrow button - visible on touch devices when active */}
-      {isActive && isTouchDevice && !isFirst && (
-        <button
-          onClick={(e) => { e.stopPropagation(); onMoveLeft?.(); }}
-          className="absolute -left-3 top-1/2 -translate-y-1/2 z-10 w-8 h-8 rounded-full bg-amber-500 text-black flex items-center justify-center shadow-lg active:scale-90 transition-transform"
-          style={{ touchAction: 'manipulation' }}
-        >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M15 19l-7-7 7-7" />
-          </svg>
-        </button>
-      )}
-
+    <div className="relative group flex-shrink-0 mx-1">
       <div
         ref={setNodeRef}
         style={style}
-        {...(isTouchDevice ? {} : { ...attributes, ...listeners })}
+        {...attributes}
+        {...listeners}
         onClick={onClick}
-        className={`w-16 h-16 md:w-16 md:h-16 rounded-xl overflow-hidden transition-all ${
+        className={`w-20 h-20 rounded-xl overflow-hidden transition-all touch-manipulation ${
           isActive
-            ? 'ring-3 ring-amber-500 scale-110'
-            : 'opacity-60 hover:opacity-90'
-        } ${isDragging ? 'ring-2 ring-white scale-105' : ''} ${!isTouchDevice ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}`}
+            ? 'ring-4 ring-amber-500 scale-110 shadow-lg shadow-amber-500/30'
+            : 'opacity-70 hover:opacity-100'
+        } ${isDragging ? 'ring-4 ring-white scale-110 shadow-xl' : ''} cursor-grab active:cursor-grabbing`}
       >
-        <img src={art.image} alt={art.title} className="w-full h-full object-cover" draggable={false} />
+        <img src={art.image} alt={art.title} className="w-full h-full object-cover pointer-events-none" draggable={false} />
         {/* Position number badge */}
-        <div className="absolute bottom-0.5 right-0.5 text-[10px] bg-black/70 text-white/80 px-1.5 py-0.5 rounded font-medium">
+        <div className="absolute bottom-1 right-1 text-xs bg-black/80 text-white px-2 py-0.5 rounded-full font-bold">
           {index + 1}
         </div>
       </div>
-
-      {/* Right arrow button - visible on touch devices when active */}
-      {isActive && isTouchDevice && !isLast && (
-        <button
-          onClick={(e) => { e.stopPropagation(); onMoveRight?.(); }}
-          className="absolute -right-3 top-1/2 -translate-y-1/2 z-10 w-8 h-8 rounded-full bg-amber-500 text-black flex items-center justify-center shadow-lg active:scale-90 transition-transform"
-          style={{ touchAction: 'manipulation' }}
-        >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M9 5l7 7-7 7" />
-          </svg>
-        </button>
+      {/* Drag handle indicator for touch */}
+      {isDragging && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <div className="w-8 h-8 rounded-full bg-white/90 flex items-center justify-center">
+            <svg className="w-5 h-5 text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8h16M4 16h16" />
+            </svg>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -408,10 +390,17 @@ export default function ArtGallery() {
   const [customOrder, setCustomOrder] = useState(null); // Custom order for artworks (null = use default)
 
   // Configure sensors for drag and drop
+  // Sensors for drag-and-drop - supports both mouse and touch
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
         distance: 8, // 8px movement before drag starts
+      },
+    }),
+    useSensor(TouchSensor, {
+      activationConstraint: {
+        delay: 150, // 150ms hold before drag starts (prevents accidental drags while scrolling)
+        tolerance: 5, // 5px movement allowed during delay
       },
     })
   );
@@ -3155,11 +3144,10 @@ export default function ArtGallery() {
             </div>
 
             {/* Thumbnail strip - draggable for admin */}
-            <div className="px-4 py-4 pt-8">
+            <div className="px-4 py-6 bg-black/40 backdrop-blur-sm">
               {getUserRole(user) === USER_ROLES.ADMIN ? (
-                <div className="flex flex-col items-center gap-2">
-                  <span className="text-white/40 text-xs hidden md:block">Drag to reorder</span>
-                  <span className="text-white/40 text-xs md:hidden">Tap arrows to reorder</span>
+                <div className="flex flex-col items-center gap-3">
+                  <span className="text-amber-400/80 text-sm font-medium">Hold & drag to reorder</span>
                   <DndContext
                     sensors={sensors}
                     collisionDetection={closestCenter}
@@ -3181,7 +3169,7 @@ export default function ArtGallery() {
                     }}
                   >
                     <SortableContext items={openSeries.artworks.map(a => a.id)} strategy={rectSortingStrategy}>
-                      <div className="flex justify-center gap-2 md:gap-3 overflow-x-auto max-w-full pb-2 px-2">
+                      <div className="flex justify-center gap-1 overflow-x-auto max-w-full py-2 px-4" style={{ touchAction: 'pan-x' }}>
                         {openSeries.artworks.map((art, i) => (
                           <SortableSeriesThumbnail
                             key={art.id}
