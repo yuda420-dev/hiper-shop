@@ -105,12 +105,16 @@ END $$;
 -- ============================================
 
 -- View for shop artworks with overrides merged
+-- IMPORTANT: Must include series_name, user_id, is_default for proper grouping
 CREATE OR REPLACE VIEW shop_artworks AS
 SELECT
   a.id,
   a.image_url,
   a.artist,
   a.category,
+  a.series_name,
+  a.user_id,
+  a.is_default,
   COALESCE(so.shop_title, a.title) as title,
   COALESCE(so.shop_description, a.description) as description,
   COALESCE(so.base_price, 299) as base_price,
