@@ -1232,6 +1232,7 @@ export default function ArtGallery() {
 
     try {
       setUploadingImage(true);
+      console.log('Starting artwork save...', { title: artwork.title, hasFile: !!imageFile });
 
       // Upload image to Supabase Storage
       let imageUrl = artwork.image;
@@ -1239,21 +1240,28 @@ export default function ArtGallery() {
       if (imageFile) {
         const fileExt = imageFile.name.split('.').pop();
         const fileName = `${user.id}/${Date.now()}.${fileExt}`;
+        console.log('Uploading image to storage:', fileName);
 
         const { error: uploadError } = await supabase.storage
           .from('artworks')
           .upload(fileName, imageFile);
 
-        if (uploadError) throw uploadError;
+        if (uploadError) {
+          console.error('Storage upload error:', uploadError);
+          showToastMessage(`Upload failed: ${uploadError.message}`, 'error');
+          throw uploadError;
+        }
 
         const { data: { publicUrl } } = supabase.storage
           .from('artworks')
           .getPublicUrl(fileName);
 
         imageUrl = publicUrl;
+        console.log('Image uploaded successfully:', imageUrl);
       }
 
       // Save artwork to database
+      console.log('Saving to database...');
       const { data, error } = await supabase
         .from('artworks')
         .insert({
@@ -1270,8 +1278,13 @@ export default function ArtGallery() {
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Database insert error:', error);
+        showToastMessage(`Save failed: ${error.message}`, 'error');
+        throw error;
+      }
 
+      console.log('Artwork saved successfully:', data.id);
       return {
         ...artwork,
         id: data.id,
@@ -1279,7 +1292,7 @@ export default function ArtGallery() {
       };
     } catch (err) {
       console.error('Error saving artwork:', err);
-      showToastMessage('Failed to save artwork', 'error');
+      showToastMessage(`Failed to save: ${err.message || 'Unknown error'}`, 'error');
       return null;
     } finally {
       setUploadingImage(false);
@@ -1797,37 +1810,51 @@ export default function ArtGallery() {
     setSeriesStep(-1); // Skip series, go to normal questionnaire
   };
 
+  // Track series upload progress
+  const [seriesUploadProgress, setSeriesUploadProgress] = useState({ current: 0, total: 0 });
+
   const saveSeriesAndContinue = async () => {
+    const totalCount = pendingUploads.length;
+    const currentSeriesName = seriesName; // Capture before reset
     setUploadingImage(true);
+    setSeriesUploadProgress({ current: 0, total: totalCount });
 
     const savedArtworks = [];
+    const failedCount = { count: 0 };
+
     for (let i = 0; i < pendingUploads.length; i++) {
+      setSeriesUploadProgress({ current: i + 1, total: totalCount });
+
       const upload = pendingUploads[i];
       const notes = individualNotes[i] || {};
 
       const newArtwork = {
         id: Date.now() + i,
-        title: notes.title || `${seriesName} #${i + 1}`,
+        title: notes.title || `${currentSeriesName} #${i + 1}`,
         artist: user?.email?.split('@')[0] || 'Artist',
-        style: seriesName,
+        style: currentSeriesName,
         category: seriesCategory,
         description: notes.note
           ? `${seriesDescription}\n\n---\n\n${notes.note}`
           : seriesDescription,
         image: upload.preview,
         isNew: true,
-        seriesName: seriesName,
+        seriesName: currentSeriesName,
       };
 
       const saved = await saveArtwork(newArtwork, upload.file);
       if (saved) {
         savedArtworks.push(saved);
+      } else {
+        failedCount.count++;
       }
     }
 
-    setArtworks(prev => [...savedArtworks, ...prev]);
-    // Track uploads for each artwork in series
-    savedArtworks.forEach(() => trackUpload());
+    if (savedArtworks.length > 0) {
+      setArtworks(prev => [...savedArtworks, ...prev]);
+      savedArtworks.forEach(() => trackUpload());
+    }
+
     setPendingUploads([]);
     setCurrentUploadIndex(0);
     setIsSeriesMode(false);
@@ -1836,8 +1863,16 @@ export default function ArtGallery() {
     setSeriesDescription('');
     setIndividualNotes({});
     setUploadingImage(false);
+    setSeriesUploadProgress({ current: 0, total: 0 });
 
-    showToastMessage(`Series "${seriesName}" with ${savedArtworks.length} artworks added!`);
+    if (failedCount.count > 0) {
+      showToastMessage(`Uploaded ${savedArtworks.length} of ${totalCount} artworks. ${failedCount.count} failed.`, 'error');
+    } else if (savedArtworks.length > 0) {
+      showToastMessage(`Series "${currentSeriesName}" with ${savedArtworks.length} artworks added!`);
+    } else {
+      showToastMessage('Upload failed. Please try again.', 'error');
+      return; // Don't scroll if nothing was saved
+    }
     setTimeout(() => scrollToGallery(), 300);
   };
 
@@ -1926,11 +1961,14 @@ export default function ArtGallery() {
     // Save to database/storage
     const savedArtwork = await saveArtwork(newArtwork, currentUpload.file);
 
-    if (savedArtwork) {
-      setArtworks(prev => [savedArtwork, ...prev]);
-      // Track upload
-      trackUpload();
+    if (!savedArtwork) {
+      // Save failed - don't proceed, error already shown by saveArtwork
+      return;
     }
+
+    // Success - add to local state
+    setArtworks(prev => [savedArtwork, ...prev]);
+    trackUpload();
 
     // Move to next upload or finish
     if (currentUploadIndex < pendingUploads.length - 1) {
@@ -3695,32 +3733,50 @@ export default function ArtGallery() {
                         </div>
                       </div>
 
-                      <div className="mt-auto flex gap-3">
-                        <button
-                          onClick={() => setSeriesStep(2)}
-                          className="px-6 py-3 rounded-xl border border-white/10 text-white/60 hover:bg-white/5 transition-all"
-                        >
-                          Back
-                        </button>
-                        <button
-                          onClick={saveSeriesAndContinue}
-                          disabled={uploadingImage}
-                          className="flex-1 py-4 rounded-xl bg-gradient-to-r from-green-500 to-emerald-500 text-white font-semibold hover:shadow-lg hover:shadow-green-500/25 transition-all duration-300 flex items-center justify-center gap-2 disabled:opacity-50"
-                        >
-                          {uploadingImage ? (
-                            <>
-                              <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                              Saving {pendingUploads.length} artworks...
-                            </>
-                          ) : (
-                            <>
-                              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                              </svg>
-                              Publish Series
-                            </>
-                          )}
-                        </button>
+                      {/* Sticky publish button for iPad visibility */}
+                      <div className="mt-auto flex flex-col gap-3 sticky bottom-0 bg-[#141416] pt-4 pb-2 -mx-8 px-8 border-t border-white/10">
+                        {uploadingImage && seriesUploadProgress.total > 0 && (
+                          <div className="mb-2">
+                            <div className="flex justify-between text-sm text-white/60 mb-1">
+                              <span>Uploading artwork {seriesUploadProgress.current} of {seriesUploadProgress.total}</span>
+                              <span>{Math.round((seriesUploadProgress.current / seriesUploadProgress.total) * 100)}%</span>
+                            </div>
+                            <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-gradient-to-r from-green-500 to-emerald-500 transition-all duration-300"
+                                style={{ width: `${(seriesUploadProgress.current / seriesUploadProgress.total) * 100}%` }}
+                              />
+                            </div>
+                          </div>
+                        )}
+                        <div className="flex gap-3">
+                          <button
+                            onClick={() => setSeriesStep(2)}
+                            disabled={uploadingImage}
+                            className="px-6 py-3 rounded-xl border border-white/10 text-white/60 hover:bg-white/5 transition-all disabled:opacity-30"
+                          >
+                            Back
+                          </button>
+                          <button
+                            onClick={saveSeriesAndContinue}
+                            disabled={uploadingImage}
+                            className="flex-1 py-5 rounded-xl bg-gradient-to-r from-green-500 to-emerald-500 text-white text-lg font-bold hover:shadow-lg hover:shadow-green-500/25 transition-all duration-300 flex items-center justify-center gap-3 disabled:opacity-70"
+                          >
+                            {uploadingImage ? (
+                              <>
+                                <div className="w-6 h-6 border-3 border-white border-t-transparent rounded-full animate-spin" />
+                                Uploading {seriesUploadProgress.current}/{seriesUploadProgress.total}...
+                              </>
+                            ) : (
+                              <>
+                                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                </svg>
+                                Publish Series ({pendingUploads.length} pieces)
+                              </>
+                            )}
+                          </button>
+                        </div>
                       </div>
                     </>
                   )}
@@ -3923,29 +3979,31 @@ export default function ArtGallery() {
                       Regenerate suggestions
                     </button>
 
-                    <div className="mt-auto flex gap-3">
+                    {/* Sticky approval button for iPad visibility */}
+                    <div className="mt-auto flex gap-3 sticky bottom-0 bg-[#141416] pt-4 pb-2 -mx-8 px-8 border-t border-white/10">
                       <button
                         onClick={prevStep}
-                        className="px-6 py-3 rounded-xl border border-white/10 text-white/60 hover:bg-white/5 transition-all"
+                        disabled={uploadingImage}
+                        className="px-6 py-3 rounded-xl border border-white/10 text-white/60 hover:bg-white/5 transition-all disabled:opacity-30"
                       >
                         Back
                       </button>
                       <button
                         onClick={approveAndSave}
                         disabled={uploadingImage}
-                        className="flex-1 py-4 rounded-xl bg-gradient-to-r from-green-500 to-emerald-500 text-white font-semibold hover:shadow-lg hover:shadow-green-500/25 transition-all duration-300 flex items-center justify-center gap-2 disabled:opacity-50"
+                        className="flex-1 py-5 rounded-xl bg-gradient-to-r from-green-500 to-emerald-500 text-white text-lg font-bold hover:shadow-lg hover:shadow-green-500/25 transition-all duration-300 flex items-center justify-center gap-3 disabled:opacity-70"
                       >
                         {uploadingImage ? (
                           <>
-                            <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                            Saving...
+                            <div className="w-6 h-6 border-3 border-white border-t-transparent rounded-full animate-spin" />
+                            Uploading...
                           </>
                         ) : (
                           <>
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                             </svg>
-                            Approve & Add to Gallery
+                            Add to Gallery
                           </>
                         )}
                       </button>
