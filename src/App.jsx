@@ -447,6 +447,10 @@ export default function ArtGallery() {
   const [showSettings, setShowSettings] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showPriceSettings, setShowPriceSettings] = useState(false);
+  const [showOrderHistory, setShowOrderHistory] = useState(false);
+  const [userOrders, setUserOrders] = useState([]);
+  const [loadingOrders, setLoadingOrders] = useState(false);
+  const [showShopAdmin, setShowShopAdmin] = useState(false);
 
   // Customizable prices (admin only)
   const [sizes, setSizes] = useState(() => {
@@ -911,6 +915,30 @@ export default function ArtGallery() {
       fetchSupabaseAnalytics();
     }
   }, [showAnalytics, user]);
+
+  // Fetch user orders
+  const fetchUserOrders = async () => {
+    if (!user) return;
+    setLoadingOrders(true);
+    try {
+      const response = await fetch(`/api/orders?user_id=${user.id}&email=${encodeURIComponent(user.email || '')}`);
+      const data = await response.json();
+      if (data.orders) {
+        setUserOrders(data.orders);
+      }
+    } catch (error) {
+      console.error('Error fetching orders:', error);
+    } finally {
+      setLoadingOrders(false);
+    }
+  };
+
+  // Fetch orders when order history modal opens
+  useEffect(() => {
+    if (showOrderHistory && user) {
+      fetchUserOrders();
+    }
+  }, [showOrderHistory, user]);
 
   // Track page view on mount
   useEffect(() => {
@@ -2131,6 +2159,7 @@ export default function ArtGallery() {
         body: JSON.stringify({
           cart,
           customerEmail: user?.email || null,
+          userId: user?.id || null,
         }),
       });
 
@@ -3987,6 +4016,27 @@ export default function ArtGallery() {
                 </button>
               </div>
 
+              {/* Order History */}
+              {user && (
+                <div className="space-y-3 mb-6">
+                  <h4 className="text-sm font-medium text-white/50 uppercase tracking-wider">Your Account</h4>
+                  <button
+                    onClick={() => { setShowSettings(false); setShowOrderHistory(true); }}
+                    className="w-full p-4 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 transition-all flex items-center gap-4 text-left"
+                  >
+                    <div className="w-10 h-10 rounded-lg bg-purple-500/20 flex items-center justify-center">
+                      <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+                      </svg>
+                    </div>
+                    <div>
+                      <p className="font-medium">Order History</p>
+                      <p className="text-sm text-white/40">View your past and current orders</p>
+                    </div>
+                  </button>
+                </div>
+              )}
+
               {/* Admin: Price Settings */}
               {getUserRole(user) === USER_ROLES.ADMIN && (
                 <div className="space-y-3 mb-6">
@@ -4003,6 +4053,20 @@ export default function ArtGallery() {
                     <div>
                       <p className="font-medium">Price Settings</p>
                       <p className="text-sm text-white/40">Adjust sizes and frame prices</p>
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => { setShowSettings(false); setShowShopAdmin(true); }}
+                    className="w-full p-4 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 transition-all flex items-center gap-4 text-left"
+                  >
+                    <div className="w-10 h-10 rounded-lg bg-cyan-500/20 flex items-center justify-center">
+                      <svg className="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                      </svg>
+                    </div>
+                    <div>
+                      <p className="font-medium">Shop Management</p>
+                      <p className="text-sm text-white/40">Manage artworks in shop, sync from gallery</p>
                     </div>
                   </button>
                 </div>
@@ -4126,6 +4190,247 @@ export default function ArtGallery() {
                 className="w-full py-4 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-black font-semibold hover:shadow-lg hover:shadow-amber-500/25 transition-all"
               >
                 Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Order History Modal */}
+      {showOrderHistory && (
+        <div
+          className="fixed inset-0 z-50 bg-black/90 backdrop-blur-xl flex items-center justify-center p-4 overflow-y-auto"
+          onClick={() => setShowOrderHistory(false)}
+        >
+          <div
+            className="bg-[#141416] rounded-3xl max-w-2xl w-full max-h-[90vh] overflow-hidden shadow-2xl my-8"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="p-6 border-b border-white/5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
+                    <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-semibold">Order History</h3>
+                    <p className="text-sm text-white/40">{userOrders.length} order{userOrders.length !== 1 ? 's' : ''}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowOrderHistory(false)}
+                  className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center hover:bg-white/10 transition-colors"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <div className="p-6 overflow-y-auto max-h-[60vh]">
+              {loadingOrders ? (
+                <div className="flex items-center justify-center py-12">
+                  <svg className="animate-spin h-8 w-8 text-amber-400" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                </div>
+              ) : userOrders.length === 0 ? (
+                <div className="text-center py-12">
+                  <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mx-auto mb-4">
+                    <svg className="w-8 h-8 text-white/30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+                    </svg>
+                  </div>
+                  <p className="text-white/40">No orders yet</p>
+                  <p className="text-white/30 text-sm mt-1">Your order history will appear here</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {userOrders.map(order => (
+                    <div key={order.id} className="p-4 rounded-xl bg-white/5 border border-white/10">
+                      <div className="flex items-start justify-between mb-3">
+                        <div>
+                          <p className="font-medium text-white">Order #{order.stripe_session_id?.slice(-8) || order.id.slice(0, 8)}</p>
+                          <p className="text-sm text-white/40">
+                            {new Date(order.created_at).toLocaleDateString('en-US', {
+                              year: 'numeric',
+                              month: 'long',
+                              day: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-semibold text-amber-400">${order.total_amount}</p>
+                          <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${
+                            order.status === 'paid' ? 'bg-green-500/20 text-green-400' :
+                            order.status === 'shipped' ? 'bg-blue-500/20 text-blue-400' :
+                            order.status === 'delivered' ? 'bg-purple-500/20 text-purple-400' :
+                            order.status === 'failed' ? 'bg-red-500/20 text-red-400' :
+                            'bg-yellow-500/20 text-yellow-400'
+                          }`}>
+                            {order.status?.charAt(0).toUpperCase() + order.status?.slice(1) || 'Processing'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Items */}
+                      <div className="space-y-2">
+                        {(order.items || []).map((item, idx) => (
+                          <div key={idx} className="flex items-center gap-3 p-2 rounded-lg bg-white/5">
+                            {item.artworkImage && (
+                              <img src={item.artworkImage} alt="" className="w-12 h-12 rounded-lg object-cover" />
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium truncate">{item.artworkTitle || 'Artwork'}</p>
+                              <p className="text-xs text-white/40">{item.size} • {item.frameLabel || item.frame}</p>
+                            </div>
+                            <p className="text-sm text-white/60">${item.price}</p>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Shipping Address */}
+                      {order.shipping_address && (
+                        <div className="mt-3 pt-3 border-t border-white/10">
+                          <p className="text-xs text-white/40 mb-1">Shipping to:</p>
+                          <p className="text-sm text-white/70">
+                            {order.shipping_address.name && `${order.shipping_address.name}, `}
+                            {order.shipping_address.line1}
+                            {order.shipping_address.line2 && `, ${order.shipping_address.line2}`}
+                            {order.shipping_address.city && `, ${order.shipping_address.city}`}
+                            {order.shipping_address.state && ` ${order.shipping_address.state}`}
+                            {order.shipping_address.postal_code && ` ${order.shipping_address.postal_code}`}
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Tracking */}
+                      {order.tracking_number && (
+                        <div className="mt-3 pt-3 border-t border-white/10">
+                          <p className="text-xs text-white/40 mb-1">Tracking Number:</p>
+                          <p className="text-sm font-mono text-amber-400">{order.tracking_number}</p>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="p-6 border-t border-white/5">
+              <p className="text-sm text-white/40 text-center mb-4">
+                A confirmation email was sent to {user?.email}
+              </p>
+              <button
+                onClick={() => setShowOrderHistory(false)}
+                className="w-full py-4 rounded-xl border border-white/10 text-white/70 font-medium hover:bg-white/5 transition-all"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Shop Admin Modal */}
+      {showShopAdmin && getUserRole(user) === USER_ROLES.ADMIN && (
+        <div
+          className="fixed inset-0 z-50 bg-black/90 backdrop-blur-xl flex items-center justify-center p-4 overflow-y-auto"
+          onClick={() => setShowShopAdmin(false)}
+        >
+          <div
+            className="bg-[#141416] rounded-3xl max-w-4xl w-full max-h-[90vh] overflow-hidden shadow-2xl my-8"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="p-6 border-b border-white/5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-500 flex items-center justify-center">
+                    <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-semibold">Shop Management</h3>
+                    <p className="text-sm text-white/40">Gallery → Shop sync control</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowShopAdmin(false)}
+                  className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center hover:bg-white/10 transition-colors"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <div className="p-6 overflow-y-auto max-h-[60vh]">
+              {/* Sync Status */}
+              <div className="p-4 rounded-xl bg-gradient-to-r from-cyan-500/10 to-blue-500/10 border border-cyan-500/20 mb-6">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="w-3 h-3 rounded-full bg-green-400 animate-pulse"></div>
+                  <p className="font-medium">Gallery Sync Active</p>
+                </div>
+                <p className="text-sm text-white/60">
+                  Artworks uploaded to HiPeR Gallery automatically appear here.
+                  You can customize shop-specific settings without affecting the gallery.
+                </p>
+              </div>
+
+              {/* Instructions */}
+              <div className="space-y-4">
+                <h4 className="text-sm font-medium text-white/50 uppercase tracking-wider">Setup Required</h4>
+
+                <div className="p-4 rounded-xl bg-white/5 border border-white/10">
+                  <p className="font-medium mb-2">1. Run the SQL Schema</p>
+                  <p className="text-sm text-white/60 mb-3">
+                    Copy and run the shop sync schema in your Supabase SQL Editor to enable the sync.
+                  </p>
+                  <code className="block p-3 rounded-lg bg-black/50 text-xs text-green-400 font-mono overflow-x-auto">
+                    supabase-shop-sync-schema.sql
+                  </code>
+                </div>
+
+                <div className="p-4 rounded-xl bg-white/5 border border-white/10">
+                  <p className="font-medium mb-2">2. Gallery → Shop Flow</p>
+                  <ul className="text-sm text-white/60 space-y-1">
+                    <li>• Artist uploads artwork in Gallery</li>
+                    <li>• Artwork auto-syncs to Shop</li>
+                    <li>• Admin can override title, description, pricing</li>
+                    <li>• Admin can hide/feature artworks</li>
+                    <li>• Changes never affect Gallery</li>
+                  </ul>
+                </div>
+
+                <div className="p-4 rounded-xl bg-white/5 border border-white/10">
+                  <p className="font-medium mb-2">3. Manage Artworks</p>
+                  <p className="text-sm text-white/60">
+                    Once the schema is set up, you'll be able to:
+                  </p>
+                  <ul className="text-sm text-white/60 space-y-1 mt-2">
+                    <li>• Toggle artworks in/out of shop</li>
+                    <li>• Set custom prices per artwork</li>
+                    <li>• Feature artworks on homepage</li>
+                    <li>• Override titles and descriptions</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-6 border-t border-white/5">
+              <button
+                onClick={() => setShowShopAdmin(false)}
+                className="w-full py-4 rounded-xl border border-white/10 text-white/70 font-medium hover:bg-white/5 transition-all"
+              >
+                Close
               </button>
             </div>
           </div>

@@ -25,7 +25,7 @@ export default async function handler(req, res) {
       telemetry: false,
     });
 
-    const { cart, customerEmail } = req.body;
+    const { cart, customerEmail, userId } = req.body;
 
     if (!cart || cart.length === 0) {
       return res.status(400).json({ error: 'Cart is empty' });
@@ -60,6 +60,7 @@ export default async function handler(req, res) {
         frameLabel: item.frame.label,
         price: item.total,
       }))),
+      user_id: userId || '',
     };
 
     console.log('Creating checkout session with', line_items.length, 'items');

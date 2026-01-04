@@ -72,6 +72,9 @@ export default async function handler(req, res) {
         // Calculate total
         const totalAmount = session.amount_total / 100; // Convert from cents
 
+        // Get user_id from metadata
+        const userId = session.metadata?.user_id || null;
+
         // Create order record in Supabase
         const orderData = {
           stripe_session_id: session.id,
@@ -80,6 +83,7 @@ export default async function handler(req, res) {
           total_amount: totalAmount,
           currency: session.currency,
           customer_email: session.customer_details?.email || session.customer_email,
+          user_id: userId || null,
           shipping_address: {
             name: shippingName,
             line1: shippingAddress.line1,
