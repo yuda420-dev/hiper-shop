@@ -352,7 +352,7 @@ export default function ArtGallery() {
   // Favorites state
   const [favorites, setFavorites] = useState([]);
 
-  // Analytics state
+  // Analytics state (shared with gallery via same localStorage key)
   const [showAnalytics, setShowAnalytics] = useState(false);
   const [analyticsData, setAnalyticsData] = useState(() => {
     const saved = localStorage.getItem('hiperGalleryAnalytics');
@@ -370,6 +370,25 @@ export default function ArtGallery() {
       deviceTypes: { mobile: 0, tablet: 0, desktop: 0 },
       favoriteActions: 0,
       uploadCount: 0,
+    };
+  });
+
+  // Shop-specific analytics (orders, cart, revenue)
+  const [shopAnalytics, setShopAnalytics] = useState(() => {
+    const saved = localStorage.getItem('hiperShopAnalytics');
+    return saved ? JSON.parse(saved) : {
+      totalOrders: 0,
+      totalRevenue: 0,
+      averageOrderValue: 0,
+      cartAdditions: 0,
+      cartAbandonments: 0,
+      checkoutStarts: 0,
+      checkoutCompletions: 0,
+      conversionRate: 0,
+      popularSizes: {}, // { sizeName: count }
+      popularFrames: {}, // { frameName: count }
+      ordersByDate: {}, // { date: { count, revenue } }
+      topSellingArtworks: {}, // { artworkId: { count, revenue } }
     };
   });
 
@@ -523,6 +542,75 @@ export default function ArtGallery() {
       }));
       showToastMessage('Contact info auto-filled from your account!');
     }
+  };
+
+  // Save shop analytics to localStorage
+  const saveShopAnalytics = (newData) => {
+    const updated = { ...shopAnalytics, ...newData };
+    // Recalculate derived metrics
+    if (updated.totalOrders > 0) {
+      updated.averageOrderValue = Math.round(updated.totalRevenue / updated.totalOrders);
+    }
+    if (updated.checkoutStarts > 0) {
+      updated.conversionRate = Math.round((updated.checkoutCompletions / updated.checkoutStarts) * 100);
+    }
+    setShopAnalytics(updated);
+    localStorage.setItem('hiperShopAnalytics', JSON.stringify(updated));
+  };
+
+  // Track cart addition
+  const trackCartAddition = (item) => {
+    const sizeName = item.size.name;
+    const frameName = item.frame.name;
+    saveShopAnalytics({
+      cartAdditions: shopAnalytics.cartAdditions + 1,
+      popularSizes: {
+        ...shopAnalytics.popularSizes,
+        [sizeName]: (shopAnalytics.popularSizes[sizeName] || 0) + 1,
+      },
+      popularFrames: {
+        ...shopAnalytics.popularFrames,
+        [frameName]: (shopAnalytics.popularFrames[frameName] || 0) + 1,
+      },
+    });
+  };
+
+  // Track checkout start
+  const trackCheckoutStart = () => {
+    saveShopAnalytics({
+      checkoutStarts: shopAnalytics.checkoutStarts + 1,
+    });
+  };
+
+  // Track order completion
+  const trackOrderCompletion = (orderTotal, cartItems) => {
+    const today = new Date().toISOString().split('T')[0];
+    const todayData = shopAnalytics.ordersByDate[today] || { count: 0, revenue: 0 };
+
+    // Track top selling artworks
+    const updatedTopSelling = { ...shopAnalytics.topSellingArtworks };
+    cartItems.forEach(item => {
+      const artId = item.artwork.id;
+      if (!updatedTopSelling[artId]) {
+        updatedTopSelling[artId] = { count: 0, revenue: 0, title: item.artwork.title };
+      }
+      updatedTopSelling[artId].count += 1;
+      updatedTopSelling[artId].revenue += item.total;
+    });
+
+    saveShopAnalytics({
+      totalOrders: shopAnalytics.totalOrders + 1,
+      totalRevenue: shopAnalytics.totalRevenue + orderTotal,
+      checkoutCompletions: shopAnalytics.checkoutCompletions + 1,
+      ordersByDate: {
+        ...shopAnalytics.ordersByDate,
+        [today]: {
+          count: todayData.count + 1,
+          revenue: todayData.revenue + orderTotal,
+        },
+      },
+      topSellingArtworks: updatedTopSelling,
+    });
   };
 
   // Export to Notion-friendly markdown
@@ -1908,6 +1996,7 @@ export default function ArtGallery() {
       total: sizes[selectedSize].price + frames[selectedFrame].price
     };
     setCart([...cart, item]);
+    trackCartAddition(item); // Track analytics
     showToastMessage(`Added to cart`);
     closeModal();
   };
@@ -1919,6 +2008,7 @@ export default function ArtGallery() {
 
   const handleCheckout = () => {
     if (cart.length === 0) return;
+    trackCheckoutStart(); // Track analytics
     // Move to shipping step
     setCheckoutStep('shipping');
     // Pre-fill email if user is logged in
@@ -1944,6 +2034,7 @@ export default function ArtGallery() {
     if (!isProdigiConfigured()) {
       // Demo mode - simulate order
       setTimeout(() => {
+        trackOrderCompletion(cartTotal, cart); // Track analytics
         setOrderResult({
           success: true,
           orderId: `DEMO-${Date.now()}`,
@@ -1951,6 +2042,7 @@ export default function ArtGallery() {
         });
         setCheckoutStep('complete');
         setIsProcessingOrder(false);
+        setCart([]);
       }, 2000);
       return;
     }
@@ -1975,6 +2067,7 @@ export default function ArtGallery() {
     setIsProcessingOrder(false);
 
     if (result.success) {
+      trackOrderCompletion(cartTotal, cart); // Track analytics
       setCart([]);
     }
   };
@@ -4189,11 +4282,142 @@ export default function ArtGallery() {
                 </div>
               </div>
 
+              {/* Shop Analytics Section */}
+              <div className="mt-8 pt-6 border-t border-white/10">
+                <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                  <svg className="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  Shop Performance
+                </h3>
+
+                {/* Revenue Metrics */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+                  <div className="p-4 rounded-xl bg-gradient-to-br from-green-500/20 to-emerald-500/20 border border-green-500/30">
+                    <p className="text-3xl font-bold text-green-400">${shopAnalytics.totalRevenue}</p>
+                    <p className="text-xs text-white/50">Total Revenue</p>
+                  </div>
+                  <div className="p-4 rounded-xl bg-gradient-to-br from-blue-500/20 to-cyan-500/20 border border-blue-500/30">
+                    <p className="text-3xl font-bold text-blue-400">{shopAnalytics.totalOrders}</p>
+                    <p className="text-xs text-white/50">Orders</p>
+                  </div>
+                  <div className="p-4 rounded-xl bg-gradient-to-br from-purple-500/20 to-pink-500/20 border border-purple-500/30">
+                    <p className="text-3xl font-bold text-purple-400">${shopAnalytics.averageOrderValue}</p>
+                    <p className="text-xs text-white/50">Avg Order Value</p>
+                  </div>
+                  <div className="p-4 rounded-xl bg-gradient-to-br from-amber-500/20 to-orange-500/20 border border-amber-500/30">
+                    <p className="text-3xl font-bold text-amber-400">{shopAnalytics.conversionRate}%</p>
+                    <p className="text-xs text-white/50">Conversion Rate</p>
+                  </div>
+                </div>
+
+                {/* Funnel Metrics */}
+                <div className="grid grid-cols-3 gap-3 mb-6">
+                  <div className="p-4 rounded-xl bg-white/5 border border-white/10 text-center">
+                    <p className="text-2xl font-bold text-white">{shopAnalytics.cartAdditions}</p>
+                    <p className="text-xs text-white/50">Cart Additions</p>
+                  </div>
+                  <div className="p-4 rounded-xl bg-white/5 border border-white/10 text-center">
+                    <p className="text-2xl font-bold text-white">{shopAnalytics.checkoutStarts}</p>
+                    <p className="text-xs text-white/50">Checkouts Started</p>
+                  </div>
+                  <div className="p-4 rounded-xl bg-white/5 border border-white/10 text-center">
+                    <p className="text-2xl font-bold text-white">{shopAnalytics.checkoutCompletions}</p>
+                    <p className="text-xs text-white/50">Orders Completed</p>
+                  </div>
+                </div>
+
+                <div className="grid md:grid-cols-2 gap-6">
+                  {/* Popular Sizes */}
+                  <div className="p-4 rounded-xl bg-white/5 border border-white/10">
+                    <h4 className="text-sm font-medium text-white/70 mb-4">Popular Sizes</h4>
+                    <div className="space-y-2">
+                      {Object.entries(shopAnalytics.popularSizes || {})
+                        .sort((a, b) => b[1] - a[1])
+                        .slice(0, 4)
+                        .map(([name, count]) => {
+                          const total = Object.values(shopAnalytics.popularSizes || {}).reduce((a, b) => a + b, 1);
+                          const percent = Math.round((count / total) * 100);
+                          return (
+                            <div key={name} className="flex items-center gap-3">
+                              <span className="text-sm text-white/60 w-20">{name}</span>
+                              <div className="flex-1 h-2 bg-white/10 rounded-full overflow-hidden">
+                                <div
+                                  className="h-full bg-gradient-to-r from-amber-500 to-orange-500"
+                                  style={{ width: `${percent}%` }}
+                                />
+                              </div>
+                              <span className="text-sm text-white/40 w-12 text-right">{count}</span>
+                            </div>
+                          );
+                        })}
+                      {Object.keys(shopAnalytics.popularSizes || {}).length === 0 && (
+                        <p className="text-sm text-white/30 text-center py-4">No data yet</p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Popular Frames */}
+                  <div className="p-4 rounded-xl bg-white/5 border border-white/10">
+                    <h4 className="text-sm font-medium text-white/70 mb-4">Popular Frames</h4>
+                    <div className="space-y-2">
+                      {Object.entries(shopAnalytics.popularFrames || {})
+                        .sort((a, b) => b[1] - a[1])
+                        .slice(0, 6)
+                        .map(([name, count]) => {
+                          const frame = frames.find(f => f.name === name);
+                          const total = Object.values(shopAnalytics.popularFrames || {}).reduce((a, b) => a + b, 1);
+                          const percent = Math.round((count / total) * 100);
+                          return (
+                            <div key={name} className="flex items-center gap-3">
+                              <div
+                                className="w-4 h-4 rounded border"
+                                style={{
+                                  backgroundColor: frame?.color === 'transparent' ? '#1a1a1a' : frame?.color,
+                                  borderColor: frame?.color === 'transparent' ? '#333' : frame?.color
+                                }}
+                              />
+                              <span className="text-sm text-white/60 flex-1">{frame?.label || name}</span>
+                              <span className="text-sm text-white/40">{count}</span>
+                            </div>
+                          );
+                        })}
+                      {Object.keys(shopAnalytics.popularFrames || {}).length === 0 && (
+                        <p className="text-sm text-white/30 text-center py-4">No data yet</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Top Selling Artworks */}
+                <div className="mt-6 p-4 rounded-xl bg-white/5 border border-white/10">
+                  <h4 className="text-sm font-medium text-white/70 mb-4">Top Selling Artworks</h4>
+                  <div className="space-y-3">
+                    {Object.entries(shopAnalytics.topSellingArtworks || {})
+                      .sort((a, b) => b[1].revenue - a[1].revenue)
+                      .slice(0, 5)
+                      .map(([id, data], index) => (
+                        <div key={id} className="flex items-center gap-3">
+                          <span className="w-6 h-6 rounded-full bg-amber-500/20 text-amber-400 text-xs font-bold flex items-center justify-center">
+                            {index + 1}
+                          </span>
+                          <span className="text-sm text-white/70 flex-1 truncate">{data.title}</span>
+                          <span className="text-sm text-white/40">{data.count} sold</span>
+                          <span className="text-sm text-green-400 font-medium">${data.revenue}</span>
+                        </div>
+                      ))}
+                    {Object.keys(shopAnalytics.topSellingArtworks || {}).length === 0 && (
+                      <p className="text-sm text-white/30 text-center py-4">No sales yet</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
               {/* Reset Analytics */}
-              <div className="mt-6 pt-6 border-t border-white/10">
+              <div className="mt-6 pt-6 border-t border-white/10 flex gap-4">
                 <button
                   onClick={() => {
-                    if (window.confirm('Are you sure you want to reset all analytics data? This cannot be undone.')) {
+                    if (window.confirm('Reset gallery analytics (views, visits, devices)? This cannot be undone.')) {
                       const fresh = {
                         totalViews: 0,
                         artworkViews: {},
@@ -4211,12 +4435,38 @@ export default function ArtGallery() {
                       };
                       setAnalyticsData(fresh);
                       localStorage.setItem('hiperGalleryAnalytics', JSON.stringify(fresh));
-                      showToastMessage('Analytics data reset');
+                      showToastMessage('Gallery analytics reset');
                     }
                   }}
                   className="text-sm text-red-400/60 hover:text-red-400 transition-colors"
                 >
-                  Reset Analytics Data
+                  Reset Gallery Analytics
+                </button>
+                <button
+                  onClick={() => {
+                    if (window.confirm('Reset shop analytics (orders, revenue, sales)? This cannot be undone.')) {
+                      const freshShop = {
+                        totalOrders: 0,
+                        totalRevenue: 0,
+                        averageOrderValue: 0,
+                        cartAdditions: 0,
+                        cartAbandonments: 0,
+                        checkoutStarts: 0,
+                        checkoutCompletions: 0,
+                        conversionRate: 0,
+                        popularSizes: {},
+                        popularFrames: {},
+                        ordersByDate: {},
+                        topSellingArtworks: {},
+                      };
+                      setShopAnalytics(freshShop);
+                      localStorage.setItem('hiperShopAnalytics', JSON.stringify(freshShop));
+                      showToastMessage('Shop analytics reset');
+                    }
+                  }}
+                  className="text-sm text-red-400/60 hover:text-red-400 transition-colors"
+                >
+                  Reset Shop Analytics
                 </button>
               </div>
             </div>
@@ -4939,6 +5189,17 @@ export default function ArtGallery() {
 
                   {/* Save address checkbox */}
                   <label className="flex items-center gap-3 p-3 rounded-xl bg-white/5 cursor-pointer hover:bg-white/10 transition-colors">
+                    <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
+                      savedShippingInfo
+                        ? 'bg-amber-500 border-amber-500'
+                        : 'bg-transparent border-white/30'
+                    }`}>
+                      {savedShippingInfo && (
+                        <svg className="w-3 h-3 text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                        </svg>
+                      )}
+                    </div>
                     <input
                       type="checkbox"
                       checked={!!savedShippingInfo}
@@ -4951,7 +5212,7 @@ export default function ArtGallery() {
                           showToastMessage('Saved address removed');
                         }
                       }}
-                      className="w-5 h-5 rounded border-white/20 bg-white/10 checked:bg-amber-500 checked:border-amber-500"
+                      className="sr-only"
                     />
                     <span className="text-sm text-white/60">Save this address for future orders</span>
                   </label>
