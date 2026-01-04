@@ -342,6 +342,7 @@ export default function ArtGallery() {
   });
   const [orderResult, setOrderResult] = useState(null);
   const [isProcessingOrder, setIsProcessingOrder] = useState(false);
+  const [stripeCheckoutLoading, setStripeCheckoutLoading] = useState(false);
   const [toast, setToast] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingArt, setEditingArt] = useState(null);
@@ -912,6 +913,53 @@ export default function ArtGallery() {
   // Track page view on mount
   useEffect(() => {
     trackPageView();
+  }, []);
+
+  // Handle Stripe checkout success/cancel from URL params
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const checkoutStatus = params.get('checkout');
+    const sessionId = params.get('session_id');
+
+    if (checkoutStatus === 'success' && sessionId) {
+      // Fetch order details from Stripe
+      fetch(`/api/order-status?session_id=${sessionId}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.success) {
+            setOrderResult({
+              success: true,
+              orderId: data.orderId,
+              message: 'Payment successful! Your order is being processed.',
+              customerEmail: data.customerEmail,
+              totalAmount: data.totalAmount,
+              items: data.items,
+            });
+            setCheckoutStep('complete');
+            setShowCart(true);
+            setCart([]); // Clear cart after successful payment
+            trackOrderCompletion(data.totalAmount, data.items);
+          }
+        })
+        .catch(err => {
+          console.error('Failed to fetch order status:', err);
+          setOrderResult({
+            success: true,
+            orderId: sessionId,
+            message: 'Payment successful! Your order confirmation will be sent to your email.',
+          });
+          setCheckoutStep('complete');
+          setShowCart(true);
+          setCart([]);
+        });
+
+      // Clean up URL
+      window.history.replaceState({}, '', window.location.pathname);
+    } else if (checkoutStatus === 'cancel') {
+      showToastMessage('Checkout cancelled. Your cart items are still saved.');
+      // Clean up URL
+      window.history.replaceState({}, '', window.location.pathname);
+    }
   }, []);
 
   // Check auth state on mount
@@ -2050,14 +2098,37 @@ export default function ArtGallery() {
     showToastMessage('Removed from cart');
   };
 
-  const handleCheckout = () => {
+  const handleCheckout = async () => {
     if (cart.length === 0) return;
     trackCheckoutStart(); // Track analytics
-    // Move to shipping step
-    setCheckoutStep('shipping');
-    // Pre-fill email if user is logged in
-    if (user?.email) {
-      setShippingInfo(prev => ({ ...prev, email: user.email }));
+
+    // Use Stripe Checkout for payment
+    setStripeCheckoutLoading(true);
+
+    try {
+      const response = await fetch('/api/checkout', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          cart,
+          customerEmail: user?.email || null,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.url) {
+        // Redirect to Stripe Checkout
+        window.location.href = data.url;
+      } else {
+        throw new Error(data.error || 'Failed to create checkout session');
+      }
+    } catch (error) {
+      console.error('Checkout error:', error);
+      showToastMessage('Checkout failed. Please try again.', 'error');
+      setStripeCheckoutLoading(false);
     }
   };
 
@@ -5381,9 +5452,20 @@ export default function ArtGallery() {
                 </div>
                 <button
                   onClick={handleCheckout}
-                  className="w-full py-5 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 text-[#0a0a0b] font-semibold text-lg hover:shadow-xl hover:shadow-amber-500/25 transition-all duration-300"
+                  disabled={stripeCheckoutLoading}
+                  className="w-full py-5 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 text-[#0a0a0b] font-semibold text-lg hover:shadow-xl hover:shadow-amber-500/25 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
-                  Checkout — ${cartTotal}
+                  {stripeCheckoutLoading ? (
+                    <>
+                      <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                      Redirecting to payment...
+                    </>
+                  ) : (
+                    `Checkout — $${cartTotal}`
+                  )}
                 </button>
                 <button
                   onClick={clearCart}
