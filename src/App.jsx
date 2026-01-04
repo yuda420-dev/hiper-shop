@@ -343,6 +343,8 @@ export default function ArtGallery() {
   const [orderResult, setOrderResult] = useState(null);
   const [isProcessingOrder, setIsProcessingOrder] = useState(false);
   const [stripeCheckoutLoading, setStripeCheckoutLoading] = useState(false);
+  const [showAddedToCartPopup, setShowAddedToCartPopup] = useState(false);
+  const [lastAddedItem, setLastAddedItem] = useState(null);
   const [toast, setToast] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingArt, setEditingArt] = useState(null);
@@ -922,6 +924,9 @@ export default function ArtGallery() {
     const sessionId = params.get('session_id');
 
     if (checkoutStatus === 'success' && sessionId) {
+      // Reset loading state
+      setStripeCheckoutLoading(false);
+
       // Fetch order details from Stripe
       fetch(`/api/order-status?session_id=${sessionId}`)
         .then(res => res.json())
@@ -2089,8 +2094,20 @@ export default function ArtGallery() {
     };
     setCart([...cart, item]);
     trackCartAddition(item); // Track analytics
-    showToastMessage(`Added to cart`);
+    setLastAddedItem(item);
+    setShowAddedToCartPopup(true);
     closeModal();
+  };
+
+  const handleViewCart = () => {
+    setShowAddedToCartPopup(false);
+    setShowCart(true);
+    setCheckoutStep('cart');
+  };
+
+  const handleKeepBrowsing = () => {
+    setShowAddedToCartPopup(false);
+    showToastMessage('Item added to cart!');
   };
 
   const removeFromCart = (id) => {
@@ -2190,6 +2207,7 @@ export default function ArtGallery() {
   const resetCheckout = () => {
     setCheckoutStep('cart');
     setOrderResult(null);
+    setStripeCheckoutLoading(false);
     setShippingInfo({
       name: '',
       email: '',
@@ -2205,6 +2223,7 @@ export default function ArtGallery() {
   const clearCart = () => {
     setCart([]);
     setCheckoutStep('cart');
+    setStripeCheckoutLoading(false);
     showToastMessage('Cart cleared');
   };
 
@@ -5422,7 +5441,7 @@ export default function ArtGallery() {
                       <h4 className="text-xl font-semibold mb-2">Order Failed</h4>
                       <p className="text-white/60 mb-6">{orderResult?.error || 'Something went wrong. Please try again.'}</p>
                       <button
-                        onClick={() => setCheckoutStep('shipping')}
+                        onClick={() => setCheckoutStep('cart')}
                         className="px-6 py-3 rounded-full bg-white/10 text-white font-medium hover:bg-white/20 transition-all"
                       >
                         Try Again
@@ -5479,11 +5498,21 @@ export default function ArtGallery() {
             {checkoutStep === 'shipping' && (
               <div className="p-6 border-t border-white/5 bg-[#0f0f11]">
                 <button
-                  onClick={handleShippingSubmit}
-                  disabled={isProcessingOrder}
-                  className="w-full py-5 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 text-[#0a0a0b] font-semibold text-lg hover:shadow-xl hover:shadow-amber-500/25 transition-all duration-300 disabled:opacity-50"
+                  onClick={handleCheckout}
+                  disabled={stripeCheckoutLoading}
+                  className="w-full py-5 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 text-[#0a0a0b] font-semibold text-lg hover:shadow-xl hover:shadow-amber-500/25 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
-                  Place Order — ${cartTotal}
+                  {stripeCheckoutLoading ? (
+                    <>
+                      <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                      Redirecting to payment...
+                    </>
+                  ) : (
+                    `Proceed to Payment — $${cartTotal}`
+                  )}
                 </button>
                 <button
                   onClick={() => setCheckoutStep('cart')}
@@ -5612,6 +5641,65 @@ export default function ArtGallery() {
                 <span className="text-white/40 text-sm hidden sm:inline">
                   Use arrow keys or swipe to navigate
                 </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Added to Cart Popup */}
+      {showAddedToCartPopup && lastAddedItem && (
+        <div
+          className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={handleKeepBrowsing}
+        >
+          <div
+            className="bg-[#1a1a1c] rounded-3xl max-w-md w-full overflow-hidden shadow-2xl border border-white/10"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="p-6">
+              {/* Success Icon */}
+              <div className="w-16 h-16 mx-auto mb-4 bg-gradient-to-br from-green-500 to-emerald-500 rounded-full flex items-center justify-center">
+                <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+
+              <h3 className="text-xl font-bold text-center mb-2">Added to Cart!</h3>
+
+              {/* Item Preview */}
+              <div className="flex items-center gap-4 p-4 bg-white/5 rounded-xl mb-6">
+                <img
+                  src={lastAddedItem.artwork.image}
+                  alt={lastAddedItem.artwork.title}
+                  className="w-16 h-16 rounded-lg object-cover"
+                />
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium truncate">{lastAddedItem.artwork.title}</p>
+                  <p className="text-sm text-white/50">{lastAddedItem.size.name} • {lastAddedItem.frame.label || lastAddedItem.frame.name}</p>
+                  <p className="text-amber-400 font-semibold">${lastAddedItem.total}</p>
+                </div>
+              </div>
+
+              {/* Cart Summary */}
+              <div className="text-center text-sm text-white/50 mb-6">
+                {cart.length} {cart.length === 1 ? 'item' : 'items'} in cart • Total: <span className="text-amber-400 font-semibold">${cart.reduce((sum, item) => sum + item.total, 0)}</span>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="space-y-3">
+                <button
+                  onClick={handleViewCart}
+                  className="w-full py-4 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-black font-semibold hover:shadow-lg hover:shadow-amber-500/25 transition-all"
+                >
+                  View Cart & Checkout
+                </button>
+                <button
+                  onClick={handleKeepBrowsing}
+                  className="w-full py-4 rounded-xl bg-white/5 border border-white/10 text-white font-medium hover:bg-white/10 transition-all"
+                >
+                  Keep Browsing
+                </button>
               </div>
             </div>
           </div>

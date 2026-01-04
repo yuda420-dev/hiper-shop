@@ -1,6 +1,8 @@
 import Stripe from 'stripe';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+export const config = {
+  maxDuration: 30,
+};
 
 export default async function handler(req, res) {
   // Only allow POST
@@ -8,7 +10,21 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
+  // Check if secret key is configured
+  const secretKey = process.env.STRIPE_SECRET_KEY;
+  if (!secretKey) {
+    console.error('STRIPE_SECRET_KEY is not configured');
+    return res.status(500).json({ error: 'Stripe is not configured' });
+  }
+
+  // Log key prefix for debugging (safe - only shows test/live indicator)
+  console.log('Using Stripe key starting with:', secretKey.substring(0, 7));
+
   try {
+    const stripe = new Stripe(secretKey, {
+      telemetry: false,
+    });
+
     const { cart, customerEmail } = req.body;
 
     if (!cart || cart.length === 0) {
@@ -45,6 +61,8 @@ export default async function handler(req, res) {
         price: item.total,
       }))),
     };
+
+    console.log('Creating checkout session with', line_items.length, 'items');
 
     // Create Stripe checkout session
     const session = await stripe.checkout.sessions.create({
@@ -102,9 +120,11 @@ export default async function handler(req, res) {
       metadata,
     });
 
+    console.log('Checkout session created:', session.id);
     return res.status(200).json({ url: session.url, sessionId: session.id });
   } catch (error) {
-    console.error('Stripe checkout error:', error);
+    console.error('Stripe checkout error:', error.message);
+    console.error('Full error:', JSON.stringify(error, null, 2));
     return res.status(500).json({ error: error.message });
   }
 }
