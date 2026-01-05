@@ -79,8 +79,9 @@ const ADMIN_EMAIL = 'hiper.6258@gmail.com';
 // Permission helpers - get role from Supabase user_metadata or direct property
 const getUserRole = (user) => {
   if (!user) return null;
-  // Check if user is the admin
-  if (user.email === ADMIN_EMAIL) return USER_ROLES.ADMIN;
+  // Check if user is the admin - Supabase can store email in different places
+  const userEmail = user.email || user.user_metadata?.email || user.identities?.[0]?.email;
+  if (userEmail?.toLowerCase() === ADMIN_EMAIL.toLowerCase()) return USER_ROLES.ADMIN;
   return user?.user_metadata?.role || user?.role || USER_ROLES.ARTIST;
 };
 const canUpload = (user) => {
@@ -394,12 +395,12 @@ export default function ArtGallery() {
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
-        distance: 8, // 8px movement before drag starts
+        distance: 10, // 10px movement before drag starts - allows clicks to pass through
       },
     }),
     useSensor(TouchSensor, {
       activationConstraint: {
-        delay: 150, // 150ms hold before drag starts (prevents accidental drags while scrolling)
+        delay: 250, // 250ms hold before drag starts - allows taps to pass through
         tolerance: 5, // 5px movement allowed during delay
       },
     })
@@ -436,6 +437,26 @@ export default function ArtGallery() {
   const [individualNotes, setIndividualNotes] = useState({}); // { index: { title, note } }
   const [seriesStep, setSeriesStep] = useState(0); // 0: choose mode, 1: series info, 2: individual notes, 3: review
   const [seriesDeckRotation, setSeriesDeckRotation] = useState({}); // { seriesName: currentIndex } for auto-rotation
+
+  // Series animation settings - { seriesName: { enabled: boolean, interval: number } }
+  // Animation is OFF by default. Only cycles when enabled.
+  const [seriesAnimationSettings, setSeriesAnimationSettings] = useState(() => {
+    try {
+      const saved = localStorage.getItem('hiperSeriesAnimationSettings');
+      return saved ? JSON.parse(saved) : {};
+    } catch (e) {
+      return {};
+    }
+  });
+
+  // Save animation settings to localStorage
+  const updateSeriesAnimation = (seriesName, settings) => {
+    setSeriesAnimationSettings(prev => {
+      const updated = { ...prev, [seriesName]: { ...prev[seriesName], ...settings } };
+      localStorage.setItem('hiperSeriesAnimationSettings', JSON.stringify(updated));
+      return updated;
+    });
+  };
 
   // Settings/Export state
   const [showSettings, setShowSettings] = useState(false);
@@ -1595,9 +1616,26 @@ export default function ArtGallery() {
   const galleryItems = getGalleryItems();
 
   // Apply custom order only when in 'curated' mode and custom order exists
-  const orderedGalleryItems = (sortBy === 'curated' && customOrder)
-    ? customOrder.map(id => galleryItems.find(item => (item.type === 'series' ? `series-${item.name}` : item.id) === id)).filter(Boolean)
-    : galleryItems;
+  // IMPORTANT: Include ALL items - ordered items first, then any new items not in the saved order
+  const orderedGalleryItems = (() => {
+    if (sortBy !== 'curated' || !customOrder) {
+      return galleryItems;
+    }
+
+    const getItemId = (item) => item.type === 'series' ? `series-${item.name}` : item.id;
+
+    // Get items that are in the custom order (in that order)
+    const orderedItems = customOrder
+      .map(id => galleryItems.find(item => getItemId(item) === id))
+      .filter(Boolean);
+
+    // Get items that are NOT in the custom order (new uploads)
+    const orderedIds = new Set(customOrder);
+    const newItems = galleryItems.filter(item => !orderedIds.has(getItemId(item)));
+
+    // Return: ordered items first, then new items at the beginning (so they're visible)
+    return [...newItems, ...orderedItems];
+  })();
 
   // Drag and drop handlers
   const handleDragStart = (event) => {
@@ -1654,11 +1692,46 @@ export default function ArtGallery() {
   // Track which series is being hovered for rotation
   const [hoveredSeries, setHoveredSeries] = useState(null);
   const hoverIntervalRef = useRef(null);
+  const animationIntervalsRef = useRef({});
 
-  // Rotate series cards on hover every 3 seconds
+  // Check if animation is enabled for a series
+  const isAnimationEnabled = (seriesName) => {
+    return seriesAnimationSettings[seriesName]?.enabled === true;
+  };
+
+  // Get animation interval for a series (default 10 seconds)
+  const getAnimationInterval = (seriesName) => {
+    return (seriesAnimationSettings[seriesName]?.interval || 10) * 1000;
+  };
+
+  // Auto-rotate series cards that have animation enabled
   useEffect(() => {
-    if (hoveredSeries) {
-      // Start rotation interval for hovered series
+    // Clear all existing intervals
+    Object.values(animationIntervalsRef.current).forEach(clearInterval);
+    animationIntervalsRef.current = {};
+
+    // Set up intervals for series with animation enabled
+    orderedGalleryItems
+      .filter(item => item.type === 'series' && isAnimationEnabled(item.name))
+      .forEach(series => {
+        const interval = getAnimationInterval(series.name);
+        animationIntervalsRef.current[series.name] = setInterval(() => {
+          setSeriesDeckRotation(prev => ({
+            ...prev,
+            [series.name]: ((prev[series.name] || 0) + 1) % series.artworks.length,
+          }));
+        }, interval);
+      });
+
+    return () => {
+      Object.values(animationIntervalsRef.current).forEach(clearInterval);
+    };
+  }, [orderedGalleryItems, seriesAnimationSettings]);
+
+  // Rotate series cards on hover (only if animation is enabled)
+  useEffect(() => {
+    if (hoveredSeries && isAnimationEnabled(hoveredSeries)) {
+      // Start faster rotation interval on hover (3 seconds)
       hoverIntervalRef.current = setInterval(() => {
         setSeriesDeckRotation(prev => {
           const series = orderedGalleryItems.find(item => item.type === 'series' && item.name === hoveredSeries);
@@ -1668,7 +1741,7 @@ export default function ArtGallery() {
             [hoveredSeries]: ((prev[hoveredSeries] || 0) + 1) % series.artworks.length,
           };
         });
-      }, 3000); // Rotate every 3 seconds on hover
+      }, 2000); // Faster rotation on hover
     } else {
       // Clear interval when not hovering
       if (hoverIntervalRef.current) {
@@ -1682,7 +1755,7 @@ export default function ArtGallery() {
         clearInterval(hoverIntervalRef.current);
       }
     };
-  }, [hoveredSeries, orderedGalleryItems]);
+  }, [hoveredSeries, orderedGalleryItems, seriesAnimationSettings]);
 
   // Open a series folder
   const openSeriesFolder = (series) => {
@@ -2745,60 +2818,62 @@ export default function ArtGallery() {
                       return item.artworks[idx];
                     };
                     return (
-                  <div className="aspect-[4/5] relative pt-3 pl-3">
-                    {/* Background cards - fanned out for deck effect with rotation */}
+                  <div className="aspect-[4/5] relative pt-6 pl-6 pr-2 pb-2">
+                    {/* Background cards - more visible fanned stack effect */}
                     {item.artworks.length > 2 && (
                       <div
-                        className="absolute rounded-2xl overflow-hidden shadow-lg transition-all duration-700 group-hover:translate-x-4 group-hover:-translate-y-2"
+                        className="absolute rounded-2xl overflow-hidden shadow-xl border border-white/10 transition-all duration-500 group-hover:translate-x-6 group-hover:-translate-y-3 group-hover:rotate-[-12deg]"
                         style={{
-                          top: '-4px',
-                          left: '-4px',
-                          right: '20px',
-                          bottom: '20px',
+                          top: '0px',
+                          left: '0px',
+                          right: '24px',
+                          bottom: '24px',
                           zIndex: 1,
-                          transform: 'rotate(-8deg) translateX(-8px)',
+                          transform: 'rotate(-10deg) translateX(-12px) translateY(-4px)',
                         }}
                       >
                         <div className="w-full h-full bg-[#1a1a1c]">
                           <img
                             src={getRotatedArtwork(2)?.image}
                             alt=""
-                            className="w-full h-full object-cover opacity-80 transition-opacity duration-700"
+                            className="w-full h-full object-cover opacity-90 transition-all duration-500"
                           />
+                          <div className="absolute inset-0 bg-black/20" />
                         </div>
                       </div>
                     )}
 
                     {item.artworks.length > 1 && (
                       <div
-                        className="absolute rounded-2xl overflow-hidden shadow-lg transition-all duration-700 group-hover:translate-x-3 group-hover:-translate-y-1"
+                        className="absolute rounded-2xl overflow-hidden shadow-xl border border-white/10 transition-all duration-500 group-hover:translate-x-4 group-hover:-translate-y-2 group-hover:rotate-[-6deg]"
                         style={{
-                          top: '4px',
-                          left: '4px',
+                          top: '8px',
+                          left: '8px',
                           right: '16px',
                           bottom: '16px',
                           zIndex: 2,
-                          transform: 'rotate(-4deg) translateX(-4px)',
+                          transform: 'rotate(-5deg) translateX(-6px) translateY(-2px)',
                         }}
                       >
                         <div className="w-full h-full bg-[#1a1a1c]">
                           <img
                             src={getRotatedArtwork(1)?.image}
                             alt=""
-                            className="w-full h-full object-cover opacity-90 transition-opacity duration-700"
+                            className="w-full h-full object-cover opacity-95 transition-all duration-500"
                           />
+                          <div className="absolute inset-0 bg-black/10" />
                         </div>
                       </div>
                     )}
 
                     {/* Top card - main visible card with rotation animation */}
                     <div
-                      className="absolute rounded-2xl overflow-hidden shadow-2xl ring-2 ring-amber-500/40 group-hover:ring-amber-500/70 transition-all duration-500 group-hover:shadow-amber-500/20 group-hover:translate-x-1"
+                      className="absolute rounded-2xl overflow-hidden shadow-2xl ring-2 ring-amber-500/40 group-hover:ring-amber-500/70 transition-all duration-500 group-hover:shadow-amber-500/20 group-hover:translate-x-2 group-hover:-translate-y-1"
                       style={{
-                        top: '12px',
-                        left: '12px',
-                        right: '12px',
-                        bottom: '12px',
+                        top: '16px',
+                        left: '16px',
+                        right: '8px',
+                        bottom: '8px',
                         zIndex: 3,
                       }}
                     >
@@ -4180,6 +4255,53 @@ export default function ArtGallery() {
                   </button>
                 </div>
               )}
+
+              {/* Series Tile Animations - Admin Only */}
+              {getUserRole(user) === USER_ROLES.ADMIN && (() => {
+                const seriesList = [...new Set(artworks.filter(a => a.seriesName).map(a => a.seriesName))].sort();
+                return (
+                  <div className="space-y-3 mb-6">
+                    <h4 className="text-sm font-medium text-white/50 uppercase tracking-wider">Series Tile Animations</h4>
+                    <div className="p-4 rounded-xl bg-white/5 border border-white/10 space-y-3 max-h-60 overflow-y-auto">
+                      <p className="text-xs text-white/40 mb-3">Enable auto-cycling on series tiles in the gallery view</p>
+                      {seriesList.length === 0 ? (
+                        <p className="text-sm text-white/50 italic">No series found. Upload artworks with a series name to enable animations.</p>
+                      ) : (
+                        seriesList.map(seriesName => {
+                          const isEnabled = seriesAnimationSettings[seriesName]?.enabled === true;
+                          const interval = seriesAnimationSettings[seriesName]?.interval || 10;
+                          return (
+                            <div key={seriesName} className="flex items-center justify-between py-2 border-b border-white/5 last:border-0">
+                              <span className="text-sm text-white/80 truncate max-w-[150px]" title={seriesName}>{seriesName}</span>
+                              <div className="flex items-center gap-2">
+                                {isEnabled && (
+                                  <select
+                                    value={interval}
+                                    onChange={(e) => updateSeriesAnimation(seriesName, { interval: parseInt(e.target.value) })}
+                                    className="bg-white/10 border border-white/20 rounded px-2 py-1 text-xs text-white/70"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <option value={5}>5s</option>
+                                    <option value={10}>10s</option>
+                                    <option value={15}>15s</option>
+                                    <option value={30}>30s</option>
+                                  </select>
+                                )}
+                                <button
+                                  onClick={() => updateSeriesAnimation(seriesName, { enabled: !isEnabled })}
+                                  className={`relative w-11 h-6 rounded-full transition-colors ${isEnabled ? 'bg-amber-500' : 'bg-white/20'}`}
+                                >
+                                  <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${isEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Info */}
               <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 mb-6">
