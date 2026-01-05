@@ -256,39 +256,55 @@ function SortableSeriesThumbnail({ art, index, isActive, onClick, onMoveLeft, on
 
   const style = {
     transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
+    transition: transition || 'transform 150ms ease, opacity 150ms ease',
+    opacity: isDragging ? 0.9 : 1,
     zIndex: isDragging ? 1000 : 'auto',
+    scale: isDragging ? 1.05 : 1,
   };
 
   return (
-    <div className="relative group flex-shrink-0 mx-1">
+    <div className="relative flex-shrink-0">
       <div
         ref={setNodeRef}
         style={style}
         {...attributes}
         {...listeners}
         onClick={onClick}
-        className={`w-20 h-20 rounded-xl overflow-hidden transition-all touch-manipulation ${
+        className={`w-16 h-16 md:w-20 md:h-20 rounded-xl overflow-hidden cursor-grab active:cursor-grabbing relative ${
           isActive
-            ? 'ring-4 ring-amber-500 scale-110 shadow-lg shadow-amber-500/30'
+            ? 'ring-2 ring-amber-500 scale-105'
             : 'opacity-70 hover:opacity-100'
-        } ${isDragging ? 'ring-4 ring-white scale-110 shadow-xl' : ''} cursor-grab active:cursor-grabbing`}
+        } ${isDragging ? 'ring-2 ring-white shadow-2xl' : ''}`}
       >
-        <img src={art.image} alt={art.title} className="w-full h-full object-cover pointer-events-none" draggable={false} />
+        <img src={art.image} alt={art.title} className="w-full h-full object-cover" draggable={false} />
+
         {/* Position number badge */}
-        <div className="absolute bottom-1 right-1 text-xs bg-black/80 text-white px-2 py-0.5 rounded-full font-bold">
+        <div className="absolute bottom-1 right-1 text-xs font-bold bg-black/80 text-white px-1.5 py-0.5 rounded">
           {index + 1}
         </div>
       </div>
-      {/* Drag handle indicator for touch */}
-      {isDragging && (
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <div className="w-8 h-8 rounded-full bg-white/90 flex items-center justify-center">
-            <svg className="w-5 h-5 text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8h16M4 16h16" />
+
+      {/* Mobile-friendly move buttons (visible when active on touch devices) */}
+      {isActive && (
+        <div className="absolute -bottom-7 left-1/2 -translate-x-1/2 flex gap-2 md:hidden">
+          <button
+            onClick={(e) => { e.stopPropagation(); onMoveLeft?.(); }}
+            disabled={isFirst}
+            className={`w-7 h-7 rounded-full flex items-center justify-center shadow-lg ${isFirst ? 'bg-white/10 text-white/30' : 'bg-amber-500 text-black active:scale-95'}`}
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M15 19l-7-7 7-7" />
             </svg>
-          </div>
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); onMoveRight?.(); }}
+            disabled={isLast}
+            className={`w-7 h-7 rounded-full flex items-center justify-center shadow-lg ${isLast ? 'bg-white/10 text-white/30' : 'bg-amber-500 text-black active:scale-95'}`}
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
         </div>
       )}
     </div>
@@ -395,12 +411,12 @@ export default function ArtGallery() {
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
-        distance: 10, // 10px movement before drag starts - allows clicks to pass through
+        distance: 5, // 5px movement before drag starts
       },
     }),
     useSensor(TouchSensor, {
       activationConstraint: {
-        delay: 250, // 250ms hold before drag starts - allows taps to pass through
+        delay: 50, // 50ms hold before drag starts - very responsive
         tolerance: 5, // 5px movement allowed during delay
       },
     })
@@ -3232,10 +3248,9 @@ export default function ArtGallery() {
             </div>
 
             {/* Thumbnail strip - draggable for admin */}
-            <div className="px-4 py-6 bg-black/40 backdrop-blur-sm">
+            <div className="px-4 py-4">
               {getUserRole(user) === USER_ROLES.ADMIN ? (
-                <div className="flex flex-col items-center gap-3">
-                  <span className="text-amber-400/80 text-sm font-medium">Hold & drag to reorder</span>
+                <div className="flex flex-col items-center">
                   <DndContext
                     sensors={sensors}
                     collisionDetection={closestCenter}
@@ -3303,16 +3318,6 @@ export default function ArtGallery() {
                   ))}
                 </div>
               )}
-            </div>
-
-            {/* Navigation hint */}
-            <div className="text-center pb-4">
-              <span className="text-white/30 text-xs hidden sm:inline">
-                Use arrow keys to navigate • Click thumbnails to jump
-              </span>
-              <span className="text-white/30 text-xs sm:hidden">
-                Swipe left/right to navigate
-              </span>
             </div>
           </div>
         </div>
