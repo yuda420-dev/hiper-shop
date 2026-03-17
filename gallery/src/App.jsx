@@ -304,6 +304,7 @@ function ArtGallery() {
   const [artworks, setArtworks] = useState(defaultArtworks);
   const [filter, setFilter] = useState('all');
   const [sortBy, setSortBy] = useState('curated'); // curated (admin order), newest, oldest, title
+  const [searchQuery, setSearchQuery] = useState('');
   const [selectedArt, setSelectedArt] = useState(null);
   const [selectedSize, setSelectedSize] = useState(1);
   const [selectedFrame, setSelectedFrame] = useState(1);
@@ -1245,23 +1246,35 @@ function ArtGallery() {
     showToastMessage('Logged out');
   };
 
-  // Determine which artworks to show based on login status
+  // Determine which artworks to show based on login status.
+  // In demo mode (no Supabase), show everything — there's no sign-up gate to enforce.
   const getVisibleArtworks = () => {
-    if (user) {
-      return artworks;
-    }
-    // Show only preview (first few) for non-logged in users
+    if (user || !isSupabaseConfigured()) return artworks;
     return artworks.slice(0, PREVIEW_LIMIT);
   };
 
   const visibleArtworks = getVisibleArtworks();
+
   const filteredArt = (() => {
-    if (filter === 'all') return visibleArtworks;
-    if (filter === 'favorites') return visibleArtworks.filter(a => favorites.includes(a.id));
-    if (filter === 'my-artworks') return visibleArtworks.filter(a => a.userId === user?.id);
-    return visibleArtworks.filter(a => a.category === filter);
+    let result = visibleArtworks;
+    if (filter === 'favorites') result = result.filter(a => favorites.includes(a.id));
+    else if (filter === 'my-artworks') result = result.filter(a => a.userId === user?.id);
+    else if (filter !== 'all') result = result.filter(a => a.category === filter);
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase();
+      result = result.filter(a =>
+        a.title?.toLowerCase().includes(q) ||
+        a.artist?.toLowerCase().includes(q) ||
+        a.description?.toLowerCase().includes(q) ||
+        a.category?.toLowerCase().includes(q) ||
+        a.style?.toLowerCase().includes(q) ||
+        a.seriesName?.toLowerCase().includes(q)
+      );
+    }
+    return result;
   })();
-  const hasMoreArtworks = !user && artworks.length > PREVIEW_LIMIT;
+
+  const hasMoreArtworks = !user && isSupabaseConfigured() && artworks.length > PREVIEW_LIMIT;
 
   // Group artworks by series for folder display
   const getGalleryItems = () => {
@@ -2359,6 +2372,23 @@ function ArtGallery() {
         </div>
       </header>
 
+      {/* Demo mode banner */}
+      {!isSupabaseConfigured() && (
+        <div className="relative z-30 bg-amber-500/10 border-b border-amber-500/20 px-6 py-2.5">
+          <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
+            <p className="text-xs text-amber-400/80">
+              <span className="font-medium text-amber-400">Demo mode</span> — browsing sample artworks. Configure <code className="bg-white/10 px-1 rounded">VITE_SUPABASE_URL</code> to connect a real database.
+            </p>
+            <button
+              onClick={() => setShowAuthModal(true)}
+              className="shrink-0 text-xs text-amber-400 hover:text-amber-300 underline underline-offset-2 transition-colors"
+            >
+              Try demo sign-in
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Hero Section */}
       <section className="relative pt-32 pb-16 px-6 lg:px-8">
         <div className="max-w-7xl mx-auto text-center">
@@ -2396,28 +2426,59 @@ function ArtGallery() {
 
       {/* Filters & Sorting */}
       <nav ref={galleryRef} className="px-6 lg:px-8 pb-12 scroll-mt-24">
-        <div className="max-w-7xl mx-auto">
+        <div className="max-w-7xl mx-auto space-y-4">
+
+          {/* Search */}
+          <div className="relative max-w-lg">
+            <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
+            </svg>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="Search by title, artist, style, category…"
+              className="w-full bg-white/5 border border-white/10 rounded-xl pl-10 pr-10 py-3 text-sm text-white placeholder-white/30 focus:outline-none focus:border-amber-500/40 focus:bg-white/8 transition-all"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/70 transition-colors"
+                aria-label="Clear search"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
+          </div>
+
+          {/* Category chips + Sort */}
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             {/* Category filters */}
-            <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-hide">
-              {['all', ...categories].map(f => (
+            <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-hide">
+              {['all', 'favorites', ...categories].map(f => (
                 <button
                   key={f}
                   onClick={() => setFilter(f)}
-                  className={`px-5 py-2.5 rounded-full text-sm font-medium whitespace-nowrap transition-all duration-300 ${
+                  className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all duration-300 ${
                     filter === f
-                      ? 'bg-white text-[#0a0a0b]'
+                      ? f === 'favorites'
+                        ? 'bg-amber-500 text-[#0a0a0b]'
+                        : 'bg-white text-[#0a0a0b]'
                       : 'bg-white/5 text-white/50 hover:bg-white/10 hover:text-white/70 border border-transparent hover:border-white/10'
                   }`}
                 >
-                  {f === 'all' ? 'All Works' : f.charAt(0).toUpperCase() + f.slice(1).replace('-', ' ')}
+                  {f === 'all' ? 'All Works' : f === 'favorites'
+                    ? `★ Favorites${favorites.length > 0 ? ` (${favorites.length})` : ''}`
+                    : f.charAt(0).toUpperCase() + f.slice(1).replace('-', ' ')}
                 </button>
               ))}
             </div>
 
             {/* Sort options */}
             <div className="flex items-center gap-2 shrink-0">
-              <span className="text-white/40 text-sm">Sort:</span>
+              <span className="text-white/40 text-xs">Sort:</span>
               {[
                 { value: 'curated', label: 'Curated' },
                 { value: 'newest', label: 'Newest' },
@@ -2438,6 +2499,23 @@ function ArtGallery() {
               ))}
             </div>
           </div>
+
+          {/* Active filter summary */}
+          {(searchQuery || filter !== 'all') && (
+            <div className="flex items-center gap-2 text-xs text-white/40">
+              {filteredArt.length === 0
+                ? 'No results'
+                : `${filteredArt.length} artwork${filteredArt.length !== 1 ? 's' : ''}`}
+              {(searchQuery || filter !== 'all') && (
+                <button
+                  onClick={() => { setSearchQuery(''); setFilter('all'); }}
+                  className="text-amber-400/60 hover:text-amber-400 transition-colors underline underline-offset-2"
+                >
+                  Clear all
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </nav>
 
@@ -2460,7 +2538,13 @@ function ArtGallery() {
                   </div>
                   <h3 className="text-lg font-medium text-white/70 mb-2">No artworks found</h3>
                   <p className="text-sm text-white/40 max-w-sm">
-                    {filter !== 'all' ? 'Try selecting a different category or clearing filters.' : 'Upload your first artwork to get started!'}
+                    {searchQuery
+                      ? `No artworks match "${searchQuery}". Try a different term or clear the search.`
+                      : filter === 'favorites'
+                        ? 'Star any artwork to save it here.'
+                        : filter !== 'all'
+                          ? 'Try a different category or clear the filter.'
+                          : 'Upload your first artwork to get started!'}
                   </p>
                 </div>
               ) : (
@@ -3044,9 +3128,16 @@ function ArtGallery() {
               <h3 className="text-2xl font-semibold text-center mb-2">
                 {authMode === 'login' ? 'Welcome Back' : 'Join HiPeR Gallery'}
               </h3>
-              <p className="text-white/40 text-center mb-8">
+              <p className="text-white/40 text-center mb-6">
                 {authMode === 'login' ? 'Sign in to access your gallery' : 'Create an account to start uploading'}
               </p>
+
+              {/* Demo mode notice */}
+              {!isSupabaseConfigured() && (
+                <div className="mb-6 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400/80 text-xs text-center">
+                  <strong className="text-amber-400">Demo mode</strong> — any email/password works. Your uploads save locally in this browser.
+                </div>
+              )}
 
               {authError && (
                 <div className="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm">

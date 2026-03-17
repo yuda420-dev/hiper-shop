@@ -96,26 +96,32 @@ PRODIGI_API_KEY            # Server-side only
 ### What works ✓
 - Both apps build and deploy cleanly to Vercel
 - Gallery: full artwork upload, series grouping, drag-and-drop curation, category filter, favorites, AI descriptions via Claude Vision
+- **Search** — full-text search across title, artist, style, description, category, series name
+- **Favorites** — star artworks from any view; persisted to localStorage; filterable via chip
+- **Category filter chips** — 9 categories + All Works + Favorites chip in filter bar
+- **Demo mode** — amber banner + demo notice in auth modal; all artworks visible (no 3-item limit); any email/password accepted; uploads persist to localStorage
+- **Landing page** — hero on first visit (localStorage flag); skipped on return
 - Shop: Stripe checkout, Prodigi print-on-demand, order history, shop-specific overrides
 - Supabase RLS policies correctly restrict write operations
-- Demo mode works without Supabase configured (shows default artworks)
-- Landing page on first visit (gallery only)
 
 ### What's broken / needs attention ✗
-1. **`gallery/src/hooks/useAuth.js`** — not imported by App.jsx. App.jsx has its own inline auth. useAuth.js is a dead hook.
-2. **`gallery/src/services/database.js`** — rewritten to correct HiPeR functions; previously had wrong tables (bookings, community_posts etc. from a different project template).
-3. **Bundle size** — both apps bundle as a single ~700-870KB JS chunk. No code splitting. This causes slow initial loads.
-4. **`VITE_ANTHROPIC_API_KEY` exposed client-side** — intentional (uses `anthropic-dangerous-direct-browser-access` header) but risky. Consider proxying through a Vercel function.
-5. **Admin email hardcoded** — `hiper.6258@gmail.com` is hardcoded in App.jsx AND RLS policies. Moving users between accounts requires updating both.
-6. **Root `src/` directory** — is an orphaned copy of the shop app from before the monorepo reorganization. Not deployed, just noise.
+1. **`gallery/src/hooks/useAuth.js`** — dead code. Not imported by App.jsx (which has inline auth). Kept for reference but unused.
+2. **`gallery/src/components/AuthModal.jsx`** — dead code. App.jsx has its own inline auth modal.
+3. **Bundle size** — both apps bundle as a single ~870-760KB JS chunk. No code splitting.
+4. **`VITE_ANTHROPIC_API_KEY` exposed client-side** — intentional (`anthropic-dangerous-direct-browser-access` header) but a scoped key with spending limits is essential.
+5. **Admin email hardcoded** — `hiper.6258@gmail.com` hardcoded in App.jsx AND Supabase RLS policies.
+6. **Root `src/` directory** — orphaned copy of the shop app; not deployed, just noise.
+
+### prompt-repository relationship
+`~/projects/tools/prompt-repository` was a fork of the gallery. The search feature has been merged back into HiPeR gallery (March 2026). The repos are now in sync — no more divergence to track.
 
 ### MVP status
-- Gallery is functional and production-live
-- Shop is functional and production-live with real Stripe + Prodigi integration
-- Main gaps are developer experience (no TS, monolithic files) and performance (bundle size)
+- Gallery: production-live, fully functional with search/filter/favorites/demo mode
+- Shop: production-live with real Stripe + Prodigi integration
+- Main gaps: developer experience (monolithic files, no TS) and performance (bundle size)
 
 ### Next priorities (if continuing development)
-1. Split App.jsx into feature components (auth, upload modal, gallery grid, admin panel, etc.)
-2. Move Anthropic key to a Vercel serverless function to avoid client-side exposure
-3. Add the search feature from `~/projects/tools/prompt-repository` to gallery (it's 1 commit ahead with search query filtering)
-4. Delete root-level `src/` directory (orphaned shop copy)
+1. Move Anthropic key server-side (Vercel function) — avoid client-side key exposure
+2. Split App.jsx into feature components (upload modal, gallery grid, admin panel)
+3. Delete root-level `src/` directory (orphaned shop copy)
+4. Add search feature to shop app (currently gallery-only)
