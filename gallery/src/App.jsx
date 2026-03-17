@@ -6,6 +6,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { createProdigiOrder, isProdigiConfigured } from './services/prodigi';
 import { generateAIDescription, isAIConfigured } from './services/ai';
 import * as analytics from './services/analytics';
+import LandingPage from './components/LandingPage';
 
 const defaultArtworks = [
   { id: 1, title: "Ethereal Dreams", artist: "HiPeR Gallery", style: "Abstract Expressionism", category: "abstract", description: "A mesmerizing exploration of color and form, where dreams meet reality in an ethereal dance of light.", image: "https://images.unsplash.com/photo-1541961017774-22349e4a1262?w=800&h=800&fit=crop", isDefault: true },
@@ -286,7 +287,7 @@ function SortableSeriesThumbnail({ art, index, isActive, onClick, onMoveLeft, on
   );
 }
 
-export default function ArtGallery() {
+function ArtGallery() {
   // Auth state
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -5261,4 +5262,23 @@ export default function ArtGallery() {
       `}</style>
     </div>
   );
+}
+
+
+// Root entry point — handles landing page on first visit, then shows gallery.
+export default function App() {
+  const [showLanding, setShowLanding] = useState(
+    () => !localStorage.getItem('hiper_visited')
+  );
+
+  const handleEnterGallery = () => {
+    localStorage.setItem('hiper_visited', '1');
+    setShowLanding(false);
+  };
+
+  if (showLanding) {
+    return <LandingPage onEnter={handleEnterGallery} />;
+  }
+
+  return <ArtGallery />;
 }

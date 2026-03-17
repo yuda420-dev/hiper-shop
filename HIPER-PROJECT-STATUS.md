@@ -177,8 +177,8 @@ WHERE a.is_public = true;
 When starting a new session, provide this context:
 ```
 Working on HiPeR project:
-- Gallery: ~/Downloads/HiPeR/gallery (deployed to prompt-repository-orcin.vercel.app)
-- Shop: ~/Downloads/HiPeR/shop (deployed to hiper-shop.vercel.app)
+- Gallery: ~/projects/apps/HiPeR/gallery (deployed to prompt-repository-orcin.vercel.app)
+- Shop: ~/projects/apps/HiPeR/shop (deployed to hiper-shop.vercel.app)
 - Both use Supabase for backend
 - Shop has Stripe + Prodigi integration
 ```
@@ -186,12 +186,12 @@ Working on HiPeR project:
 ### Deploying Changes
 ```bash
 # Gallery
-cd ~/Downloads/HiPeR/gallery
+cd ~/projects/apps/HiPeR/gallery
 npm run build
 npx vercel --prod
 
 # Shop
-cd ~/Downloads/HiPeR/shop
+cd ~/projects/apps/HiPeR/shop
 npm run build
 npx vercel --prod
 ```
@@ -199,11 +199,11 @@ npx vercel --prod
 ### Git Workflow
 ```bash
 # Gallery
-cd ~/Downloads/HiPeR/gallery
+cd ~/projects/apps/HiPeR/gallery
 git add -A && git commit -m "description" && git push
 
 # Shop
-cd ~/Downloads/HiPeR/shop
+cd ~/projects/apps/HiPeR/shop
 git add -A && git commit -m "description" && git push
 ```
 
